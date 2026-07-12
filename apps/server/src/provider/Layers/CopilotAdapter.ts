@@ -1082,6 +1082,24 @@ export function makeCopilotAdapter(
         sessions.set(input.threadId, context);
         attachEventPump(context);
 
+        // Diagnostic ground truth: log what the runtime actually
+        // discovered for this session (skills by source + session cwd).
+        yield* Effect.tryPromise(() => started.rpc.skills.list()).pipe(
+          Effect.flatMap((list) =>
+            Effect.logInfo("Copilot session skills discovered.", {
+              threadId: input.threadId,
+              cwd: directory,
+              skills: (list.skills ?? []).map(
+                (skill: { name: string; source: string; path?: string }) =>
+                  `${skill.source}:${skill.name}`,
+              ),
+            }),
+          ),
+          Effect.catchCause((cause) =>
+            Effect.logDebug("Copilot skills.list probe failed.", { cause: String(cause) }),
+          ),
+        );
+
         yield* emit({
           ...(yield* buildEventBase({ threadId: input.threadId })),
           type: "session.started",
