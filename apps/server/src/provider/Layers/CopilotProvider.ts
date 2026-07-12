@@ -23,6 +23,12 @@ import * as Result from "effect/Result";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import {
+  CopilotClient,
+  RuntimeConnection,
+  type GetAuthStatusResponse,
+  type ModelInfo,
+} from "@github/copilot-sdk";
 
 import {
   buildSelectOptionDescriptor,
@@ -113,6 +119,102 @@ export function makeCopilotEnvironment(
     : { ...base };
 }
 
+export interface CopilotCapabilitiesProbe {
+  readonly auth: GetAuthStatusResponse;
+  readonly models: ReadonlyArray<ModelInfo>;
+}
+
+const CAPABILITIES_PROBE_TIMEOUT_MS = 30_000;
+
+/**
+ * Build `CopilotClientOptions` shared by the probe and (later) the adapter.
+ * A non-default `binaryPath` routes the SDK at the user-installed CLI via
+ * `RuntimeConnection.forStdio`; otherwise the SDK-bundled CLI is used.
+ */
+export function makeCopilotClientOptions(
+  copilotSettings: CopilotSettings,
+  environment?: NodeJS.ProcessEnv,
+): ConstructorParameters<typeof CopilotClient>[0] {
+  const env = makeCopilotEnvironment(copilotSettings, environment) as Record<
+    string,
+    string | undefined
+  >;
+  return {
+    env,
+    ...(copilotSettings.homePath.length > 0 ? { baseDirectory: copilotSettings.homePath } : {}),
+    ...(copilotSettings.binaryPath !== "copilot"
+      ? { connection: RuntimeConnection.forStdio({ path: copilotSettings.binaryPath }) }
+      : {}),
+    logLevel: "none" as const,
+  };
+}
+
+/**
+ * SDK-backed capabilities probe: starts a short-lived `CopilotClient`,
+ * reads auth status + the dynamic model list, and shuts down. Returns
+ * `undefined` on any failure or timeout so callers degrade to the static
+ * catalog with `auth: unknown`.
+ */
+export const probeCopilotCapabilities = (
+  copilotSettings: CopilotSettings,
+  environment?: NodeJS.ProcessEnv,
+): Effect.Effect<CopilotCapabilitiesProbe | undefined> =>
+  Effect.gen(function* () {
+    const client = new CopilotClient(makeCopilotClientOptions(copilotSettings, environment));
+    return yield* Effect.tryPromise(async () => {
+      try {
+        await client.start();
+        const auth = await client.getAuthStatus();
+        const models = auth.isAuthenticated ? await client.listModels() : [];
+        return { auth, models } satisfies CopilotCapabilitiesProbe;
+      } finally {
+        await client.stop().catch(() => client.forceStop().catch(() => undefined));
+      }
+    });
+  }).pipe(
+    Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
+    Effect.result,
+    Effect.map((result) => {
+      if (Result.isFailure(result)) return undefined;
+      return Option.isSome(result.success) ? result.success.value : undefined;
+    }),
+  );
+
+/** Map SDK `ModelInfo` entries into the provider model catalog shape. */
+export function copilotModelsFromModelInfo(
+  models: ReadonlyArray<ModelInfo>,
+): ReadonlyArray<ServerProviderModel> {
+  return models.map((model) => ({
+    slug: model.id,
+    name: model.name,
+    isCustom: false,
+    capabilities: createModelCapabilities({
+      optionDescriptors:
+        model.capabilities.supports.reasoningEffort &&
+        (model.supportedReasoningEfforts?.length ?? 0) > 0
+          ? [
+              buildSelectOptionDescriptor({
+                id: "reasoningEffort",
+                label: "Reasoning",
+                options: (model.supportedReasoningEfforts ?? []).map((effort) => ({
+                  value: effort,
+                  label: REASONING_EFFORT_LABELS[effort] ?? effort,
+                  ...(effort === model.defaultReasoningEffort ? { isDefault: true } : {}),
+                })),
+              }),
+            ]
+          : [],
+    }),
+  }));
+}
+
+const REASONING_EFFORT_LABELS: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+};
+
 const runCopilotCommand = Effect.fn("runCopilotCommand")(function* (
   copilotSettings: CopilotSettings,
   args: ReadonlyArray<string>,
@@ -131,6 +233,9 @@ const runCopilotCommand = Effect.fn("runCopilotCommand")(function* (
 
 export const checkCopilotProviderStatus = Effect.fn("checkCopilotProviderStatus")(function* (
   copilotSettings: CopilotSettings,
+  resolveCapabilities?: (
+    copilotSettings: CopilotSettings,
+  ) => Effect.Effect<CopilotCapabilitiesProbe | undefined>,
   environment?: NodeJS.ProcessEnv,
 ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
   const resolvedEnvironment = environment ?? process.env;
@@ -164,75 +269,55 @@ export const checkCopilotProviderStatus = Effect.fn("checkCopilotProviderStatus"
     yield* Effect.logWarning("Copilot CLI health check failed.", {
       errorTag: error._tag,
     });
-    return buildServerProvider({
-      presentation: COPILOT_PRESENTATION,
-      enabled: copilotSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: !isCommandMissingCause(error),
-        version: null,
-        status: "error",
-        auth: { status: "unknown" },
-        message: isCommandMissingCause(error)
-          ? "Copilot CLI (`copilot`) is not installed or not on PATH."
-          : "Failed to execute Copilot CLI health check.",
-      },
-    });
+    // A missing user-installed binary is not fatal: the SDK bundles the
+    // CLI (`@github/copilot` dependency) and spawns it itself. Only treat
+    // this as an error when a custom binaryPath was explicitly configured.
+    const commandMissing = isCommandMissingCause(error);
+    if (!commandMissing || copilotSettings.binaryPath !== "copilot") {
+      return buildServerProvider({
+        presentation: COPILOT_PRESENTATION,
+        enabled: copilotSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: !commandMissing,
+          version: null,
+          status: "error",
+          auth: { status: "unknown" },
+          message: commandMissing
+            ? `Copilot CLI ('${copilotSettings.binaryPath}') is not installed or not on PATH.`
+            : "Failed to execute Copilot CLI health check.",
+        },
+      });
+    }
   }
 
-  if (Option.isNone(versionProbe.success)) {
-    return buildServerProvider({
-      presentation: COPILOT_PRESENTATION,
-      enabled: copilotSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: true,
-        version: null,
-        status: "error",
-        auth: { status: "unknown" },
-        message: "Copilot CLI is installed but timed out while running the version probe.",
-      },
-    });
-  }
+  let parsedVersion: string | null = null;
+  if (Result.isSuccess(versionProbe)) {
+    if (Option.isNone(versionProbe.success)) {
+      return buildServerProvider({
+        presentation: COPILOT_PRESENTATION,
+        enabled: copilotSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: null,
+          status: "error",
+          auth: { status: "unknown" },
+          message: "Copilot CLI is installed but timed out while running the version probe.",
+        },
+      });
+    }
 
-  const version = versionProbe.success.value;
-  const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
-  if (version.code !== 0) {
-    yield* Effect.logWarning("Copilot CLI version probe exited with a non-zero status.", {
-      exitCode: version.code,
-      stdoutLength: version.stdout.length,
-      stderrLength: version.stderr.length,
-    });
-    return buildServerProvider({
-      presentation: COPILOT_PRESENTATION,
-      enabled: copilotSettings.enabled,
-      checkedAt,
-      models,
-      probe: {
-        installed: true,
-        version: parsedVersion,
-        status: "error",
-        auth: { status: "unknown" },
-        message: "Copilot CLI is installed but failed to run.",
-      },
-    });
-  }
-
-  // Auth probe: `copilot auth status` exits non-zero when logged out.
-  // (Verified surface may vary by CLI version — treat any failure as
-  // "unknown" rather than "not authenticated" to avoid false negatives.)
-  const authProbe = yield* runCopilotCommand(
-    copilotSettings,
-    ["auth", "status"],
-    resolvedEnvironment,
-  ).pipe(Effect.timeoutOption(DEFAULT_TIMEOUT_MS), Effect.result);
-
-  if (Result.isSuccess(authProbe) && Option.isSome(authProbe.success)) {
-    const auth = authProbe.success.value;
-    if (auth.code === 0) {
-      const email = parseCopilotAuthLogin(`${auth.stdout}\n${auth.stderr}`);
+    const version = versionProbe.success.value;
+    parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
+    if (version.code !== 0) {
+      yield* Effect.logWarning("Copilot CLI version probe exited with a non-zero status.", {
+        exitCode: version.code,
+        stdoutLength: version.stdout.length,
+        stderrLength: version.stderr.length,
+      });
       return buildServerProvider({
         presentation: COPILOT_PRESENTATION,
         enabled: copilotSettings.enabled,
@@ -241,14 +326,38 @@ export const checkCopilotProviderStatus = Effect.fn("checkCopilotProviderStatus"
         probe: {
           installed: true,
           version: parsedVersion,
-          status: "ready",
-          auth: {
-            status: "authenticated",
-            ...(email ? { email } : {}),
-          },
+          status: "error",
+          auth: { status: "unknown" },
+          message: "Copilot CLI is installed but failed to run.",
         },
       });
     }
+  }
+
+  // Auth + dynamic models via a short-lived SDK client (`auth.getStatus`
+  // and `listModels` over JSON-RPC). Any failure degrades to the static
+  // catalog with `auth: unknown` rather than a false "unauthenticated".
+  const capabilities = resolveCapabilities
+    ? yield* resolveCapabilities(copilotSettings).pipe(Effect.orElseSucceed(() => undefined))
+    : yield* probeCopilotCapabilities(copilotSettings, resolvedEnvironment);
+
+  if (!capabilities) {
+    return buildServerProvider({
+      presentation: COPILOT_PRESENTATION,
+      enabled: copilotSettings.enabled,
+      checkedAt,
+      models,
+      probe: {
+        installed: true,
+        version: parsedVersion,
+        status: "warning",
+        auth: { status: "unknown" },
+        message: "Could not verify Copilot authentication status.",
+      },
+    });
+  }
+
+  if (!capabilities.auth.isAuthenticated) {
     return buildServerProvider({
       presentation: COPILOT_PRESENTATION,
       enabled: copilotSettings.enabled,
@@ -259,39 +368,40 @@ export const checkCopilotProviderStatus = Effect.fn("checkCopilotProviderStatus"
         version: parsedVersion,
         status: "warning",
         auth: { status: "unauthenticated" },
-        message: "Copilot CLI is installed but not logged in. Run `copilot` and authenticate.",
+        message:
+          capabilities.auth.statusMessage ??
+          "Copilot CLI is installed but not logged in. Run `copilot login` to authenticate.",
       },
     });
   }
+
+  const dynamicModels =
+    capabilities.models.length > 0
+      ? providerModelsFromSettings(
+          copilotModelsFromModelInfo(capabilities.models),
+          PROVIDER,
+          copilotSettings.customModels,
+          DEFAULT_COPILOT_MODEL_CAPABILITIES,
+        )
+      : models;
 
   return buildServerProvider({
     presentation: COPILOT_PRESENTATION,
     enabled: copilotSettings.enabled,
     checkedAt,
-    models,
+    models: dynamicModels,
     probe: {
       installed: true,
       version: parsedVersion,
-      status: "warning",
-      auth: { status: "unknown" },
-      message: "Could not verify Copilot authentication status.",
+      status: "ready",
+      auth: {
+        status: "authenticated",
+        ...(capabilities.auth.login ? { label: capabilities.auth.login } : {}),
+        ...(capabilities.auth.authType ? { type: capabilities.auth.authType } : {}),
+      },
     },
   });
 });
-
-/**
- * Extract a login/email hint from `copilot auth status` output. Output
- * shape is CLI-version dependent; we look for an email-like token and
- * otherwise a `Logged in as <login>` line.
- */
-export function parseCopilotAuthLogin(output: string): string | undefined {
-  const emailMatch = output.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
-  if (emailMatch) {
-    return emailMatch[0];
-  }
-  const loginMatch = output.match(/logged in (?:to [^\s]+ )?as ([A-Za-z0-9-]+)/i);
-  return loginMatch?.[1];
-}
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
