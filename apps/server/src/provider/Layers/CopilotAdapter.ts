@@ -1103,20 +1103,33 @@ export function makeCopilotAdapter(
         );
 
         // Diagnostic ground truth: log what the runtime actually
-        // discovered for this session (skills by source + session cwd).
-        yield* Effect.tryPromise(() => started.rpc.skills.list()).pipe(
-          Effect.flatMap((list) =>
+        // discovered for this session (skills by source, trust, cwd).
+        yield* Effect.tryPromise(async () => {
+          const [list, trust] = await Promise.all([
+            started.rpc.skills.list(),
+            started.rpc.permissions.folderTrust.isTrusted({ path: directory }),
+          ]);
+          return { list, trust };
+        }).pipe(
+          Effect.flatMap(({ list, trust }) =>
             Effect.logInfo("Copilot session skills discovered.", {
               threadId: input.threadId,
               cwd: directory,
+              trusted: trust.trusted,
               skills: (list.skills ?? []).map(
-                (skill: { name: string; source: string; path?: string }) =>
-                  `${skill.source}:${skill.name}`,
+                (skill: {
+                  name: string;
+                  source: string;
+                  enabled: boolean;
+                  userInvocable: boolean;
+                }) =>
+                  `${skill.source}:${skill.name}` +
+                  `${skill.enabled ? "" : " (disabled)"}${skill.userInvocable ? "" : " (not-invocable)"}`,
               ),
             }),
           ),
           Effect.catchCause((cause) =>
-            Effect.logDebug("Copilot skills.list probe failed.", { cause: String(cause) }),
+            Effect.logDebug("Copilot skills probe failed.", { cause: String(cause) }),
           ),
         );
 
