@@ -201,7 +201,10 @@ export function makeCopilotClientOptions(
     env,
     ...(copilotSettings.homePath.length > 0 ? { baseDirectory: copilotSettings.homePath } : {}),
     ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath }) } : {}),
-    logLevel: "none" as const,
+    // COPILOT_DEBUG=1 surfaces the runtime's own diagnostics (skill load
+    // failures, config parsing, retrieval decisions) on the CLI's stderr,
+    // which the SDK pipes through as "[CLI subprocess]" lines.
+    logLevel: (env.COPILOT_DEBUG ? "debug" : "none") as "debug" | "none",
   };
 }
 
