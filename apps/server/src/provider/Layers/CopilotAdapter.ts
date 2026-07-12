@@ -728,6 +728,38 @@ export function makeCopilotAdapter(
           break;
         }
 
+        case "session.shutdown": {
+          // Runtime-initiated shutdown (CLI exit, remote teardown). Mark
+          // the session stopped and surface a recoverable exit — the
+          // resume cursor allows a later reopen.
+          if (yield* Ref.getAndSet(context.stopped, true)) {
+            break;
+          }
+          context.unsubscribe?.();
+          sessions.delete(threadId);
+          yield* cancelPendingRequests(context);
+          yield* completeActiveTurn(context, {
+            state: "interrupted",
+            messageType: event.type,
+            raw: event,
+          }).pipe(Effect.ignore);
+          yield* emit({
+            ...(yield* buildEventBase({
+              threadId,
+              messageType: event.type,
+              raw: event,
+            })),
+            type: "session.exited",
+            payload: {
+              reason: "Copilot runtime shut down.",
+              recoverable: true,
+              exitKind: "graceful",
+            },
+          });
+          yield* Effect.promise(() => context.client.stop().catch(() => [])).pipe(Effect.ignore);
+          break;
+        }
+
         case "session.error": {
           const message =
             typeof data.message === "string" && data.message.trim().length > 0
@@ -1229,9 +1261,47 @@ export function makeCopilotAdapter(
     const readThread: CopilotAdapterShape["readThread"] = Effect.fn("readThread")(
       function* (threadId) {
         const context = ensureSessionContext(sessions, threadId);
+        // Prefer the runtime's persisted event log: it covers turns from
+        // before a resume, which the in-memory snapshots don't.
+        const events = yield* runSdk("session.getEvents", () =>
+          context.copilotSession.getEvents(),
+        ).pipe(Effect.orElseSucceed(() => undefined));
+
+        if (events === undefined) {
+          return {
+            threadId,
+            turns: context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
+          };
+        }
+
+        const turns: Array<CopilotTurnSnapshot> = [];
+        let current: CopilotTurnSnapshot | undefined;
+        for (const event of events) {
+          const data: Record<string, unknown> =
+            "data" in event && event.data && typeof event.data === "object"
+              ? (event.data as Record<string, unknown>)
+              : {};
+          if (event.type === "assistant.turn_start") {
+            const providerTurnId = typeof data.turnId === "string" ? data.turnId : event.id;
+            current = { id: TurnId.make(providerTurnId), items: [] };
+            turns.push(current);
+            continue;
+          }
+          if (
+            current &&
+            (event.type === "assistant.message" ||
+              event.type === "assistant.reasoning" ||
+              event.type === "tool.execution_start" ||
+              event.type === "tool.execution_complete" ||
+              event.type === "user.message")
+          ) {
+            current.items.push(event);
+          }
+        }
+
         return {
           threadId,
-          turns: context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
+          turns: turns.length > 0 ? turns : context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
         };
       },
     );
