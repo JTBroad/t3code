@@ -7,8 +7,9 @@ lifecycle rendering, approvals, resume, interrupt, token usage, and error mappin
 
 ## SDK facts (verified 2026-07-12)
 
-- Package: `@github/copilot-sdk`, latest **`1.0.0-beta.9`** (still beta, not GA).
-  Depends on `@github/copilot` (^1.0.55-5) — the CLI is bundled as a dependency and
+- Package: `@github/copilot-sdk`, latest **`1.0.6`** (GA; dist-tags also expose a
+  `1.0.7-preview.x` prerelease channel — stay on `latest`).
+  Depends on `@github/copilot` (^1.0.69) — the CLI is bundled as a dependency and
   spawned over stdio by default (`RuntimeConnection.forStdio({ path?, args? })`), so a
   user-installed `copilot` binary can be pointed at via `path`, mirroring how other
   drivers respect `binaryPath`.
@@ -86,8 +87,8 @@ Touched files:
   `RuntimeEventRawSource`.
 - `apps/server/src/provider/builtInDrivers.ts` — register `CopilotDriver`, extend
   `BuiltInDriversEnv`.
-- `apps/server/package.json` — add `@github/copilot-sdk@1.0.0-beta.9` (pin; it's beta,
-  expect churn).
+- `apps/server/package.json` — add `@github/copilot-sdk@1.0.6` (exact pin; bump
+  deliberately, avoid the `-preview` channel).
 - Web UI: nothing expected — instances/catalogs flow through existing contracts. Verify
   any driver-kind icon/accent map in `apps/web` has a fallback.
 
@@ -204,5 +205,5 @@ green via `vp run test`.
    without spawning a full session.
 4. **Turn boundaries** — confirm `session.idle` is the only end-of-turn signal, and how
    errors mid-turn surface (event vs. rejected promise from `send`).
-5. **Beta churn** — pin the SDK version; the permission-kind list is documented as
-   open-ended ("additional kinds may be added") so the mapping must default-case.
+5. **SDK evolution** — pin exactly to `1.0.6`; the permission-kind list is documented
+   as open-ended ("additional kinds may be added") so the mapping must default-case.
