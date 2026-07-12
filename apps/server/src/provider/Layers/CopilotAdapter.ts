@@ -26,6 +26,10 @@ import {
   TurnId,
   type UserInputQuestion,
 } from "@t3tools/contracts";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -998,6 +1002,17 @@ export function makeCopilotAdapter(
         // Copilot session, mirroring the OpenCode adapter's `mcp.add`.
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
 
+        // Project skill directories, passed explicitly. Config discovery
+        // finds these (skills.list reports them), but the session's model
+        // pipeline has been observed not to load project-scope sources;
+        // explicit skillDirectories load through the same path as
+        // personal skills and take precedence on name collision.
+        const projectSkillDirectories = [
+          NodePath.join(directory, ".github", "skills"),
+          NodePath.join(directory, ".agents", "skills"),
+          NodePath.join(directory, ".claude", "skills"),
+        ].filter((candidate) => NodeFS.existsSync(candidate));
+
         const started = yield* Effect.tryPromise(async () => {
           await client.start();
           const sessionConfig = {
@@ -1015,6 +1030,9 @@ export function makeCopilotAdapter(
             // from the working directory + user config. The SDK defaults
             // this to false.
             enableConfigDiscovery: true,
+            ...(projectSkillDirectories.length > 0
+              ? { skillDirectories: projectSkillDirectories }
+              : {}),
             ...(mcpSession
               ? {
                   mcpServers: {
@@ -1110,8 +1128,11 @@ export function makeCopilotAdapter(
           });
           if (!trusted) {
             await started.rpc.permissions.folderTrust.addTrusted({ path: directory });
-            await started.rpc.skills.ensureLoaded();
           }
+          // Always force the session's skill pipeline to (re)load so
+          // project/custom sources are available to the model from turn 1.
+          await started.rpc.skills.reload().catch(() => undefined);
+          await started.rpc.skills.ensureLoaded();
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("Copilot folder trust setup failed.", { cause: String(cause) }),
