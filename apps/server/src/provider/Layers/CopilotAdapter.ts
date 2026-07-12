@@ -990,6 +990,10 @@ export function makeCopilotAdapter(
               ? { reasoningEffort: reasoningEffort as "low" | "medium" | "high" | "xhigh" }
               : {}),
             streaming: true,
+            // Session-level cwd: tool operations AND project config
+            // discovery (.github/skills, .mcp.json) resolve against this,
+            // not the client/runtime workingDirectory.
+            workingDirectory: directory,
             // Match interactive-CLI behavior: discover skill directories
             // and MCP configs (.mcp.json, .github/skills, ~/.copilot/skills)
             // from the working directory + user config. The SDK defaults
