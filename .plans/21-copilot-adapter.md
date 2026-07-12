@@ -49,10 +49,16 @@ A provider = three pieces created by a `ProviderDriver.create()`
   `makeManagedServerProvider` with a `checkProvider` probe (see `ClaudeDriver.ts`).
 - `adapter: ProviderAdapterShape<ProviderAdapterError>` — the runtime surface
   (`apps/server/src/provider/Services/ProviderAdapter.ts`): `startSession`, `sendTurn`,
-  `interruptTurn`, `respondToRequest`, `respondToUserInput`, `stopSession`,
-  `listSessions`, `hasSession`, `readThread`, plus `capabilities.sessionModelSwitch`.
-- `textGeneration` — used for thread titles etc.; Copilot can reuse a cheap model via
-  the SDK, or delegate initially (see Phase 6).
+  `interruptTurn`, `respondToRequest`, `respondToUserInput`, `stopSession`, `stopAll`,
+  `listSessions`, `hasSession`, `readThread`, `rollbackThread`, the
+  `streamEvents: Stream<ProviderRuntimeEvent>` output stream, plus
+  `capabilities.sessionModelSwitch`. `rollbackThread` may return a
+  `ProviderAdapterRequestError` (unsupported) like other adapters do when the backend
+  can't rewind.
+- `textGeneration` — **required** field; every driver ships its own
+  (`apps/server/src/textGeneration/<X>TextGeneration.ts`) for thread titles, commit
+  messages, PR content, and branch names, reusing the shared prompt builders in
+  `TextGenerationPrompts.ts` and sanitizers in `TextGenerationUtils.ts`.
 
 Drivers are plain values registered in `apps/server/src/provider/builtInDrivers.ts`;
 `ProviderDriverKind` is an **open branded slug** (`providerInstance.ts`) so
@@ -76,6 +82,7 @@ with canonical item types (`assistant_message`, `reasoning`, `command_execution`
 | `apps/server/src/provider/Layers/CopilotProvider.ts` | `ClaudeProvider.ts` (probe, models, pending/error snapshots) |
 | `apps/server/src/provider/Layers/CopilotAdapter.ts` | `OpenCodeAdapter.ts` (structure) + `ClaudeAdapter.ts` (permission Deferred pattern) |
 | `apps/server/src/provider/Layers/CopilotAdapter.test.ts` | `OpenCodeAdapter.test.ts` |
+| `apps/server/src/textGeneration/CopilotTextGeneration.ts` (+ test) | `GrokTextGeneration.ts` — one-shot SDK session per generation with a cheap model, 180s timeout, shared prompts/sanitizers |
 
 Touched files:
 
@@ -89,8 +96,13 @@ Touched files:
   `BuiltInDriversEnv`.
 - `apps/server/package.json` — add `@github/copilot-sdk@1.0.6` (exact pin; bump
   deliberately, avoid the `-preview` channel).
-- Web UI: nothing expected — instances/catalogs flow through existing contracts. Verify
-  any driver-kind icon/accent map in `apps/web` has a fallback.
+- Web UI (three small, mechanical edits):
+  - `apps/web/src/components/Icons.tsx` — add a Copilot icon component.
+  - `apps/web/src/components/settings/providerDriverMeta.ts` — append to
+    `PROVIDER_CLIENT_DEFINITIONS`: `{ value: ProviderDriverKind.make("copilot"),
+    label: "Copilot", icon, settingsSchema: CopilotSettings, badgeLabel: "Early
+    Access" }` (drives the Add Provider dialog + settings form).
+  - `apps/web/src/components/chat/providerIconUtils.ts` — add the icon-map entry.
 
 ## Event translation map
 
@@ -102,14 +114,14 @@ Touched files:
 | `assistant.reasoning_delta` | `content.delta` (`streamKind: "reasoning_text"`) |
 | `assistant.reasoning` | `item.completed` (`reasoning`) |
 | `tool.execution_start` | `item.started` — map tool name → `command_execution` (shell), `file_change` (edit/write), `mcp_tool_call`, else `dynamic_tool_call`; `status: "inProgress"` |
-| `tool.execution_complete` | `item.completed` (`status: "completed" | "failed"`, result in `data`) |
+| `tool.execution_complete` | `item.completed` (`status: "completed" \| "failed"`, result in `data`) |
 | `session.idle` | `turn.completed` (`state: "completed"`) + `thread.state.changed` → `idle` |
 | `session.abort()` acknowledged | `turn.completed` (`state: "interrupted"`) or `turn.aborted` |
 | `session.compaction_start/complete` | `item.started/completed` (`context_compaction`) + `thread.token-usage.updated` from compaction token counts |
 | permission request opened | `request.opened` (mapping below) |
 | permission resolved | `request.resolved` |
 | `ask_user` via `onUserInputRequest` | `user-input.requested` / `user-input.resolved` |
-| SDK/process error | `runtime.error` (`class: "provider_error" | "transport_error"`) |
+| SDK/process error | `runtime.error` (`class: "provider_error" \| "transport_error"`) |
 
 Every emitted event carries `raw: { source: "copilot.sdk.event", messageType, payload }`
 so the NDJSON native event logger (`EventNdjsonLogger`) works like other adapters.
@@ -127,20 +139,46 @@ implements the ClaudeAdapter `canUseTool` pattern (ClaudeAdapter.ts ~L3250–341
    `read` → `file_read_approval`;
    `mcp` / `custom-tool` / `url` / `memory` / `hook` → `unknown` with `detail` =
    kind + toolName (revisit if UI needs richer rendering).
-3. `respondToRequest(threadId, requestId, decision)` resolves the Deferred.
-   Decision mapping: approve → `{ kind: "approve-once" }`; approve-for-session
-   (if the UI decision variant exists for this driver) → `approve-for-session`;
-   deny → `{ kind: "reject", feedback }`; session teardown/abort →
-   `{ kind: "user-not-available" }` and `Deferred.succeed(…, "cancel")` like
-   ClaudeAdapter does on interrupt.
+3. `respondToRequest(threadId, requestId, decision)` resolves the Deferred. The
+   canonical `ProviderApprovalDecision` is `"accept" | "acceptForSession" | "decline"
+   | "cancel"` (contracts `orchestration.ts` L131) → SDK results:
+   `accept` → `{ kind: "approve-once" }`; `acceptForSession` →
+   `{ kind: "approve-for-session" }`; `decline` → `{ kind: "reject" }`;
+   `cancel` (teardown/interrupt) → `{ kind: "user-not-available" }` — resolve via
+   `Deferred.succeed(…, "cancel")` like ClaudeAdapter does on interrupt.
 4. Emit `request.resolved` after resolution.
+
+### RuntimeMode → permission-handler policy
+
+`ProviderSessionStartInput.runtimeMode` (`"approval-required" | "auto-accept-edits" |
+"full-access"`) selects handler behavior, mirroring ClaudeAdapter's `permissionMode`:
+
+- `full-access` → auto-return `approve-once` for every request (SDK `approveAll`
+  equivalent, but keep the custom handler so events still flow).
+- `auto-accept-edits` → auto-approve `kind: "read"` and `"write"`, prompt for
+  `"shell"` and everything else.
+- `approval-required` → prompt (Deferred) for all kinds.
+
+`ProviderSandboxMode` has no Copilot equivalent — ignore, policy is enforced entirely
+through the permission handler. `interactionMode: "plan"` is unsupported v1 (no
+Copilot plan mode); treat as `default`.
 
 ## Sessions, resume, interrupt
 
 - `startSession`: build one `CopilotClient` **per session** (matches per-instance
   isolation invariants in `ProviderDriver.ts`; revisit client-per-instance pooling as an
   optimization later). `createSession({ model, streaming: true, reasoningEffort,
-  onPermissionRequest, onUserInputRequest })` with `workingDirectory` = thread cwd.
+  onPermissionRequest, onUserInputRequest })` with `workingDirectory` = thread cwd
+  (`ProviderSessionStartInput.cwd`).
+- Attachments: `ProviderSendTurnInput.attachments` (`ChatAttachment[]`) → SDK
+  `attachments: [{ type: "file", path, displayName }]`, resolving stored uploads via
+  `resolveAttachmentPath` (`attachmentStore.ts`) the way OpenCodeAdapter does.
+- MCP bridge: t3code registers a per-thread MCP endpoint
+  (`McpProviderSession.readMcpProviderSession(threadId)` → endpoint + auth header)
+  that Claude/Cursor adapters inject into their session config. Copilot CLI supports
+  MCP servers; wire the same endpoint into the Copilot session (spike the SDK/CLI
+  config surface for MCP registration — not in the README's top-level API). Until
+  wired, t3code-native tools won't appear in Copilot sessions; mark as Phase 6.
 - Resume cursor: persist `{ copilotSessionId }` following the
   `readClaudeResumeState` / `updateResumeCursor` pattern (ClaudeAdapter.ts ~L562,
   ~L1447). On thread reopen: `client.resumeSession(id, { onPermissionRequest })`.
@@ -177,9 +215,11 @@ implements the ClaudeAdapter `canUseTool` pattern (ClaudeAdapter.ts ~L3250–341
 ## Phases
 
 1. **Contracts + skeleton** — `CopilotSettings`, raw-source literal, empty
-   provider/adapter/driver compiling, registered in `BUILT_IN_DRIVERS`, provider shows
-   (non-functional) in the picker. Milestone: Effect Layer wiring typechecks
-   (`vp check` + `vp run typecheck`).
+   provider/adapter/driver compiling, registered in `BUILT_IN_DRIVERS`, web UI
+   definition/icon entries, stub `CopilotTextGeneration` (returns
+   `TextGenerationError` until Phase 6), provider shows (non-functional) in the
+   picker. Milestone: Effect Layer wiring typechecks (`vp check` + `vp run
+   typecheck`).
 2. **Driver probe** — install/version/auth detection, pending/error snapshots, static
    model catalog. Milestone: provider card shows real status.
 3. **Happy path** — createSession, send, streaming deltas → `content.delta`, final
@@ -188,9 +228,10 @@ implements the ClaudeAdapter `canUseTool` pattern (ClaudeAdapter.ts ~L3250–341
    Milestone: shell command approval round-trips from the UI.
 5. **Resume + interrupt + usage** — resume cursors, abort propagation, compaction/token
    events, `readThread` snapshot, error mapping to `ProviderAdapterError` variants.
-6. **Polish** — dynamic model list with effort options, `textGeneration` (or delegate),
-   `CopilotAdapter.test.ts` with mocked SDK client (OpenCodeAdapter.test.ts pattern),
-   docs page under `docs/providers/`.
+6. **Polish** — dynamic model list with effort options, real `CopilotTextGeneration`
+   (one-shot SDK session, cheap model), MCP bridge wiring, `rollbackThread` (or
+   explicit unsupported error), `CopilotAdapter.test.ts` with mocked SDK client
+   (OpenCodeAdapter.test.ts pattern), docs page under `docs/providers/`.
 
 Definition of done per AGENTS.md: `vp check` and `vp run typecheck` pass; adapter tests
 green via `vp run test`.
@@ -207,3 +248,10 @@ green via `vp run test`.
    errors mid-turn surface (event vs. rejected promise from `send`).
 5. **SDK evolution** — pin exactly to `1.0.6`; the permission-kind list is documented
    as open-ended ("additional kinds may be added") so the mapping must default-case.
+6. **MCP registration** — how to point a Copilot SDK session at t3code's per-thread
+   MCP endpoint (URL + authorization header). Check CLI config / session config
+   surface in `dist/index.d.ts`; determines whether the MCP bridge lands in Phase 6
+   or needs an upstream feature.
+7. **Reasoning stream rendering** — confirm `assistant.reasoning_delta` fires for
+   effort-capable models and that mapping to `streamKind: "reasoning_text"` renders
+   like Claude/Codex reasoning in the UI.
