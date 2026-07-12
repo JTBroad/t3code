@@ -16,6 +16,11 @@ import {
   ProviderDriverKind,
   type ServerProviderModel,
 } from "@t3tools/contracts";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as NodeModule from "node:module";
+import * as NodePath from "node:path";
+
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -127,9 +132,51 @@ export interface CopilotCapabilitiesProbe {
 const CAPABILITIES_PROBE_TIMEOUT_MS = 30_000;
 
 /**
- * Build `CopilotClientOptions` shared by the probe and (later) the adapter.
- * A non-default `binaryPath` routes the SDK at the user-installed CLI via
- * `RuntimeConnection.forStdio`; otherwise the SDK-bundled CLI is used.
+ * Resolve the native `copilot` executable inside the SDK-bundled platform
+ * package (`@github/copilot-<platform>-<arch>`).
+ *
+ * We must pass this explicitly: the SDK's own fallback resolves the
+ * platform package's `index.js` and spawns it with `process.execPath` —
+ * which is only correct when the host process runs under plain Node. The
+ * t3code server runs under the Vite+ (`vp`) runtime, whose `execPath` is
+ * the `vp` binary, so the SDK would effectively run `vp index.js …` and
+ * the CLI never starts ("too many arguments. Expected 0 arguments").
+ * Spawning the native binary sidesteps the host runtime entirely.
+ */
+export function resolveBundledCopilotBinaryPath(): string | undefined {
+  const variants =
+    process.platform === "linux" ? ["linux", "linuxmusl"] : [process.platform];
+
+  // The platform packages are transitive deps of `@github/copilot-sdk`,
+  // so with pnpm's strict layout they are only resolvable from the SDK's
+  // own location. Their root export (".") maps straight to the native
+  // `copilot` executable.
+  let require = NodeModule.createRequire(import.meta.url);
+  try {
+    require = NodeModule.createRequire(require.resolve("@github/copilot-sdk"));
+  } catch {
+    // SDK entry not resolvable from here — fall through with the local require.
+  }
+
+  for (const variant of variants) {
+    const packageName = `@github/copilot-${variant}-${process.arch}`;
+    try {
+      const binary = require.resolve(packageName);
+      if (NodeFS.existsSync(binary)) {
+        return binary;
+      }
+    } catch {
+      // Platform package not installed for this variant — try the next.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Build `CopilotClientOptions` shared by the probe, the adapter, and text
+ * generation. A non-default `binaryPath` routes the SDK at the
+ * user-installed CLI via `RuntimeConnection.forStdio`; the default routes
+ * at the bundled native binary (see {@link resolveBundledCopilotBinaryPath}).
  */
 export function makeCopilotClientOptions(
   copilotSettings: CopilotSettings,
@@ -139,12 +186,14 @@ export function makeCopilotClientOptions(
     string,
     string | undefined
   >;
+  const cliPath =
+    copilotSettings.binaryPath !== "copilot"
+      ? copilotSettings.binaryPath
+      : resolveBundledCopilotBinaryPath();
   return {
     env,
     ...(copilotSettings.homePath.length > 0 ? { baseDirectory: copilotSettings.homePath } : {}),
-    ...(copilotSettings.binaryPath !== "copilot"
-      ? { connection: RuntimeConnection.forStdio({ path: copilotSettings.binaryPath }) }
-      : {}),
+    ...(cliPath ? { connection: RuntimeConnection.forStdio({ path: cliPath }) } : {}),
     logLevel: "none" as const,
   };
 }
