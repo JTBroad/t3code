@@ -435,6 +435,25 @@ export function makeCopilotAdapter(
         payload: event,
       });
 
+      // TEMP diagnostic: surface every event that carries skill context so
+      // we can see exactly what reaches the model's <available_skills>.
+      const diagnosticType: string = event.type;
+      if (diagnosticType === "user.message" || diagnosticType === "instruction_discovered") {
+        const serialized = JSON.stringify(event);
+        if (serialized.includes("skill")) {
+          const start = Math.max(0, serialized.indexOf("available_skills") - 100);
+          yield* Effect.logInfo("Copilot skill-context event.", {
+            type: event.type,
+            snippet: serialized.slice(start, start + 1200),
+          });
+        } else {
+          yield* Effect.logInfo("Copilot context event without skills.", {
+            type: event.type,
+            keys: Object.keys(data),
+          });
+        }
+      }
+
       switch (event.type) {
         case "assistant.turn_start": {
           context.providerTurnId = typeof data.turnId === "string" ? data.turnId : undefined;
