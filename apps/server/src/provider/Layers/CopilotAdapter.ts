@@ -438,13 +438,16 @@ export function makeCopilotAdapter(
       // TEMP diagnostic: surface every event that carries skill context so
       // we can see exactly what reaches the model's <available_skills>.
       const diagnosticType: string = event.type;
-      if (diagnosticType === "user.message" || diagnosticType === "instruction_discovered") {
-        const transformed =
-          typeof data.transformedContent === "string" ? data.transformedContent : undefined;
+      if (diagnosticType === "system.message" || diagnosticType === "instruction_discovered") {
+        const serialized = JSON.stringify(data);
+        const skillsIndex = serialized.indexOf("available_skills");
         yield* Effect.logInfo("Copilot context event.", {
           type: event.type,
-          hasAvailableSkills: transformed?.includes("available_skills") ?? false,
-          transformedContent: transformed?.slice(0, 4000) ?? JSON.stringify(data).slice(0, 1500),
+          hasAvailableSkills: skillsIndex >= 0,
+          snippet:
+            skillsIndex >= 0
+              ? serialized.slice(skillsIndex, skillsIndex + 3000)
+              : serialized.slice(0, 1200),
         });
       }
 
