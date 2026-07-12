@@ -174,9 +174,20 @@ export const probeCopilotCapabilities = (
   }).pipe(
     Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
     Effect.result,
-    Effect.map((result) => {
-      if (Result.isFailure(result)) return undefined;
-      return Option.isSome(result.success) ? result.success.value : undefined;
+    Effect.flatMap((result) => {
+      if (Result.isFailure(result)) {
+        const cause = result.failure.cause;
+        return Effect.logWarning("Copilot capabilities probe failed.", {
+          detail: cause instanceof Error ? cause.message : String(cause),
+          ...(cause instanceof Error && cause.stack ? { stack: cause.stack } : {}),
+        }).pipe(Effect.as(undefined));
+      }
+      if (Option.isNone(result.success)) {
+        return Effect.logWarning("Copilot capabilities probe timed out.", {
+          timeoutMs: CAPABILITIES_PROBE_TIMEOUT_MS,
+        }).pipe(Effect.as(undefined));
+      }
+      return Effect.succeed(result.success.value);
     }),
   );
 
