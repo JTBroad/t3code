@@ -52,6 +52,7 @@ import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -977,6 +978,10 @@ export function makeCopilotAdapter(
           };
         });
 
+        // Expose t3code's per-thread MCP endpoint (native tools) to the
+        // Copilot session, mirroring the OpenCode adapter's `mcp.add`.
+        const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+
         const started = yield* Effect.tryPromise(async () => {
           await client.start();
           const sessionConfig = {
@@ -985,6 +990,21 @@ export function makeCopilotAdapter(
               ? { reasoningEffort: reasoningEffort as "low" | "medium" | "high" | "xhigh" }
               : {}),
             streaming: true,
+            ...(mcpSession
+              ? {
+                  mcpServers: {
+                    "t3-code": {
+                      type: "http" as const,
+                      url: mcpSession.endpoint,
+                      headers: {
+                        Authorization: mcpSession.authorizationHeader,
+                      },
+                      // Enable every tool the t3-code MCP server exposes.
+                      tools: ["*"],
+                    },
+                  },
+                }
+              : {}),
             onPermissionRequest: (request: PermissionRequest) =>
               runPromise(onPermissionRequestEffect(request)),
             onUserInputRequest: (request: CopilotUserInputRequest) =>
