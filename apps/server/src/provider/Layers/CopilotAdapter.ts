@@ -10,20 +10,25 @@
  * @module provider/Layers/CopilotAdapter
  */
 import {
+  type CanonicalRequestType,
   type CopilotSettings,
   EventId,
+  type ProviderApprovalDecision,
   ProviderDriverKind,
   ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type ProviderUserInputAnswers,
   RuntimeItemId,
   RuntimeRequestId,
   ThreadId,
   type ToolLifecycleItemType,
   TurnId,
+  type UserInputQuestion,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -31,8 +36,18 @@ import * as Stream from "effect/Stream";
 import {
   CopilotClient,
   type CopilotSession,
+  type PermissionRequest,
+  type PermissionRequestResult,
   type SessionEvent,
 } from "@github/copilot-sdk";
+
+/** `UserInputRequest` is not re-exported from the SDK entrypoint; mirror
+ * its documented shape (see dist/types.d.ts). */
+interface CopilotUserInputRequest {
+  readonly question: string;
+  readonly choices?: string[];
+  readonly allowFreeform?: boolean;
+}
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -61,11 +76,24 @@ interface CopilotTurnSnapshot {
   readonly items: Array<unknown>;
 }
 
+interface PendingCopilotApproval {
+  readonly requestType: CanonicalRequestType;
+  readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
+}
+
+interface PendingCopilotUserInput {
+  readonly question: UserInputQuestion;
+  readonly request: CopilotUserInputRequest;
+  readonly answers: Deferred.Deferred<ProviderUserInputAnswers>;
+}
+
 interface CopilotSessionContext {
   session: ProviderSession;
   readonly client: CopilotClient;
   readonly copilotSession: CopilotSession;
   readonly copilotSessionId: string;
+  readonly pendingApprovals: Map<string, PendingCopilotApproval>;
+  readonly pendingUserInputs: Map<string, PendingCopilotUserInput>;
   readonly turns: Array<CopilotTurnSnapshot>;
   activeTurnId: TurnId | undefined;
   /** Provider-side turn id from `assistant.turn_start` (for providerRefs). */
@@ -125,6 +153,35 @@ export function toCopilotToolLifecycleItemType(
     return "collab_agent_tool_call";
   }
   return "dynamic_tool_call";
+}
+
+export function mapCopilotPermissionKindToRequestType(kind: string): CanonicalRequestType {
+  switch (kind) {
+    case "shell":
+      return "command_execution_approval";
+    case "write":
+      return "file_change_approval";
+    case "read":
+      return "file_read_approval";
+    default:
+      return "unknown";
+  }
+}
+
+export function summarizeCopilotPermissionRequest(request: PermissionRequest): string {
+  const record = request as unknown as Record<string, unknown>;
+  switch (request.kind) {
+    case "shell":
+      return typeof record.fullCommandText === "string" ? record.fullCommandText : "Run command";
+    case "write":
+      return typeof record.fileName === "string" ? `Write ${record.fileName}` : "Write file";
+    case "read":
+      return typeof record.fileName === "string" ? `Read ${record.fileName}` : "Read file";
+    default: {
+      const toolName = typeof record.toolName === "string" ? record.toolName : request.kind;
+      return `${request.kind}: ${toolName}`;
+    }
+  }
 }
 
 function ensureSessionContext(
@@ -265,6 +322,27 @@ export function makeCopilotAdapter(
           ).pipe(Effect.catchCause(() => Effect.void))
         : Effect.void;
 
+    /** Resolve every parked approval/user-input Deferred so the SDK
+     * handlers unblock (decision: cancel / empty answers). */
+    const cancelPendingRequests = Effect.fn("cancelPendingRequests")(function* (
+      context: CopilotSessionContext,
+    ) {
+      const approvals = [...context.pendingApprovals.values()];
+      context.pendingApprovals.clear();
+      const userInputs = [...context.pendingUserInputs.values()];
+      context.pendingUserInputs.clear();
+      yield* Effect.forEach(
+        approvals,
+        (pending) => Deferred.succeed(pending.decision, "cancel"),
+        { discard: true },
+      );
+      yield* Effect.forEach(
+        userInputs,
+        (pending) => Deferred.succeed(pending.answers, {}),
+        { discard: true },
+      );
+    });
+
     const stopCopilotContext = Effect.fn("stopCopilotContext")(function* (
       context: CopilotSessionContext,
     ) {
@@ -272,6 +350,7 @@ export function makeCopilotAdapter(
         return false;
       }
       context.unsubscribe?.();
+      yield* cancelPendingRequests(context);
       yield* Effect.tryPromise(async () => {
         await context.copilotSession.disconnect().catch(() => undefined);
         await context.client.stop().catch(() => context.client.forceStop().catch(() => undefined));
@@ -706,10 +785,164 @@ export function makeCopilotAdapter(
           "reasoningEffort",
         );
         const resumeState = readCopilotResumeState(input.resumeCursor);
+        const runtimeMode = input.runtimeMode;
 
         const client = new CopilotClient({
           ...makeCopilotClientOptions(copilotSettings, options?.environment),
           workingDirectory: directory,
+        });
+
+        // Handlers are registered at session create/resume, before the
+        // context exists — they close over the thread id and a lazy
+        // context lookup (ClaudeAdapter's contextRef pattern).
+        const getContext = () => sessions.get(input.threadId);
+
+        const onPermissionRequestEffect = Effect.fn("onPermissionRequest")(function* (
+          request: PermissionRequest,
+        ) {
+          if (runtimeMode === "full-access") {
+            return { kind: "approve-once" } satisfies PermissionRequestResult;
+          }
+          if (
+            runtimeMode === "auto-accept-edits" &&
+            (request.kind === "read" || request.kind === "write")
+          ) {
+            return { kind: "approve-once" } satisfies PermissionRequestResult;
+          }
+
+          const context = getContext();
+          if (!context || Ref.getUnsafe(context.stopped)) {
+            return { kind: "user-not-available" } satisfies PermissionRequestResult;
+          }
+
+          const requestId = yield* randomUUIDv4;
+          const requestType = mapCopilotPermissionKindToRequestType(request.kind);
+          const detail = summarizeCopilotPermissionRequest(request);
+          const decisionDeferred = yield* Deferred.make<ProviderApprovalDecision>();
+          context.pendingApprovals.set(requestId, {
+            requestType,
+            decision: decisionDeferred,
+          });
+
+          yield* emit({
+            ...(yield* buildEventBase({
+              threadId: input.threadId,
+              turnId: context.activeTurnId,
+              requestId,
+              messageType: "permission.requested",
+              raw: request,
+            })),
+            type: "request.opened",
+            payload: {
+              requestType,
+              detail,
+              args: request,
+            },
+          });
+
+          const decision = yield* Deferred.await(decisionDeferred);
+          context.pendingApprovals.delete(requestId);
+
+          yield* emit({
+            ...(yield* buildEventBase({
+              threadId: input.threadId,
+              turnId: context.activeTurnId,
+              requestId,
+              messageType: "permission.completed",
+              raw: { decision },
+            })),
+            type: "request.resolved",
+            payload: {
+              requestType,
+              decision,
+            },
+          });
+
+          switch (decision) {
+            case "accept":
+              return { kind: "approve-once" } satisfies PermissionRequestResult;
+            case "acceptForSession":
+              return { kind: "approve-for-session" } satisfies PermissionRequestResult;
+            case "cancel":
+              return {
+                kind: "reject",
+                feedback: "User cancelled tool execution.",
+              } satisfies PermissionRequestResult;
+            case "decline":
+            default:
+              return {
+                kind: "reject",
+                feedback: "User declined tool execution.",
+              } satisfies PermissionRequestResult;
+          }
+        });
+
+        const onUserInputRequestEffect = Effect.fn("onUserInputRequest")(function* (
+          request: CopilotUserInputRequest,
+        ) {
+          const context = getContext();
+          if (!context || Ref.getUnsafe(context.stopped)) {
+            return { answer: "", wasFreeform: true };
+          }
+
+          const requestId = yield* randomUUIDv4;
+          const question: UserInputQuestion = {
+            id: requestId,
+            header: "Copilot",
+            question: request.question,
+            options: (request.choices ?? []).map((choice) => ({
+              label: choice,
+              description: choice,
+            })),
+            multiSelect: false,
+          };
+          const answersDeferred = yield* Deferred.make<ProviderUserInputAnswers>();
+          context.pendingUserInputs.set(requestId, {
+            question,
+            request,
+            answers: answersDeferred,
+          });
+
+          yield* emit({
+            ...(yield* buildEventBase({
+              threadId: input.threadId,
+              turnId: context.activeTurnId,
+              requestId,
+              messageType: "user_input.requested",
+              raw: request,
+            })),
+            type: "user-input.requested",
+            payload: {
+              questions: [question],
+            },
+          });
+
+          const answers = yield* Deferred.await(answersDeferred);
+          context.pendingUserInputs.delete(requestId);
+
+          yield* emit({
+            ...(yield* buildEventBase({
+              threadId: input.threadId,
+              turnId: context.activeTurnId,
+              requestId,
+              messageType: "user_input.completed",
+              raw: answers,
+            })),
+            type: "user-input.resolved",
+            payload: { answers },
+          });
+
+          const rawAnswer = answers[requestId];
+          const answer =
+            typeof rawAnswer === "string"
+              ? rawAnswer
+              : Array.isArray(rawAnswer)
+                ? rawAnswer.join(", ")
+                : "";
+          return {
+            answer,
+            wasFreeform: !(request.choices ?? []).includes(answer),
+          };
         });
 
         const started = yield* Effect.tryPromise(async () => {
@@ -720,6 +953,10 @@ export function makeCopilotAdapter(
               ? { reasoningEffort: reasoningEffort as "low" | "medium" | "high" | "xhigh" }
               : {}),
             streaming: true,
+            onPermissionRequest: (request: PermissionRequest) =>
+              runPromise(onPermissionRequestEffect(request)),
+            onUserInputRequest: (request: CopilotUserInputRequest) =>
+              runPromise(onUserInputRequestEffect(request)),
           };
           const copilotSession = resumeState?.copilotSessionId
             ? await client.resumeSession(resumeState.copilotSessionId, sessionConfig)
@@ -770,6 +1007,8 @@ export function makeCopilotAdapter(
           client,
           copilotSession: started,
           copilotSessionId: started.sessionId,
+          pendingApprovals: new Map(),
+          pendingUserInputs: new Map(),
           turns: [],
           activeTurnId: undefined,
           providerTurnId: undefined,
@@ -908,6 +1147,7 @@ export function makeCopilotAdapter(
     const interruptTurn: CopilotAdapterShape["interruptTurn"] = Effect.fn("interruptTurn")(
       function* (threadId, turnId) {
         const context = ensureSessionContext(sessions, threadId);
+        yield* cancelPendingRequests(context);
         yield* runSdk("session.abort", () => context.copilotSession.abort());
         if (turnId ?? context.activeTurnId) {
           yield* emit({
@@ -924,30 +1164,35 @@ export function makeCopilotAdapter(
       },
     );
 
-    const respondToRequest: CopilotAdapterShape["respondToRequest"] = (
-      _threadId,
-      requestId,
-      _decision,
-    ) =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
+    const respondToRequest: CopilotAdapterShape["respondToRequest"] = Effect.fn(
+      "respondToRequest",
+    )(function* (threadId, requestId, decision) {
+      const context = ensureSessionContext(sessions, threadId);
+      const pending = context.pendingApprovals.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "respondToRequest",
-          detail: `No pending Copilot approval request: ${requestId} (approvals land in Phase 4).`,
-        }),
-      );
+          detail: `Unknown pending Copilot approval request: ${requestId}`,
+        });
+      }
+      yield* Deferred.succeed(pending.decision, decision);
+    });
 
-    const respondToUserInput: CopilotAdapterShape["respondToUserInput"] = (
-      _threadId,
-      requestId,
-    ) =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
+    const respondToUserInput: CopilotAdapterShape["respondToUserInput"] = Effect.fn(
+      "respondToUserInput",
+    )(function* (threadId, requestId, answers) {
+      const context = ensureSessionContext(sessions, threadId);
+      const pending = context.pendingUserInputs.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "respondToUserInput",
-          detail: `No pending Copilot user-input request: ${requestId} (lands in Phase 4).`,
-        }),
-      );
+          detail: `Unknown pending Copilot user-input request: ${requestId}`,
+        });
+      }
+      yield* Deferred.succeed(pending.answers, answers);
+    });
 
     const stopSession: CopilotAdapterShape["stopSession"] = Effect.fn("stopSession")(
       function* (threadId) {
