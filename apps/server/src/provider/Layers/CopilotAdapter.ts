@@ -439,19 +439,13 @@ export function makeCopilotAdapter(
       // we can see exactly what reaches the model's <available_skills>.
       const diagnosticType: string = event.type;
       if (diagnosticType === "user.message" || diagnosticType === "instruction_discovered") {
-        const serialized = JSON.stringify(event);
-        if (serialized.includes("skill")) {
-          const start = Math.max(0, serialized.indexOf("available_skills") - 100);
-          yield* Effect.logInfo("Copilot skill-context event.", {
-            type: event.type,
-            snippet: serialized.slice(start, start + 1200),
-          });
-        } else {
-          yield* Effect.logInfo("Copilot context event without skills.", {
-            type: event.type,
-            keys: Object.keys(data),
-          });
-        }
+        const transformed =
+          typeof data.transformedContent === "string" ? data.transformedContent : undefined;
+        yield* Effect.logInfo("Copilot context event.", {
+          type: event.type,
+          hasAvailableSkills: transformed?.includes("available_skills") ?? false,
+          transformedContent: transformed?.slice(0, 4000) ?? JSON.stringify(data).slice(0, 1500),
+        });
       }
 
       switch (event.type) {
