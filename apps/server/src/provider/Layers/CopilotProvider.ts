@@ -119,9 +119,16 @@ export function makeCopilotEnvironment(
   environment?: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const base = environment ?? process.env;
-  return copilotSettings.homePath.length > 0
-    ? { ...base, COPILOT_HOME: copilotSettings.homePath }
-    : { ...base };
+  return {
+    ...base,
+    // The runtime inlines only as many skills into the model context as
+    // fit a char budget (skills_get_skill_char_budget honors this env
+    // var); the default is small enough that project skills routinely
+    // fall past the cutoff and become retrieval-only. Raise it so every
+    // discovered skill is listed. Respect a user-provided override.
+    ...(base.SKILL_CHAR_BUDGET ? {} : { SKILL_CHAR_BUDGET: "65536" }),
+    ...(copilotSettings.homePath.length > 0 ? { COPILOT_HOME: copilotSettings.homePath } : {}),
+  };
 }
 
 export interface CopilotCapabilitiesProbe {
