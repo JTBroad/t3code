@@ -1082,6 +1082,26 @@ export function makeCopilotAdapter(
         sessions.set(input.threadId, context);
         attachEventPump(context);
 
+        // Trust the thread's working directory. The interactive CLI asks
+        // the user on first open; the SDK never prompts, and untrusted
+        // folders have their project-level skills/config withheld from
+        // the model context even though discovery lists them. t3code
+        // gates tool execution through its own approval flow, so
+        // trusting the cwd here mirrors the other adapters' behavior.
+        yield* Effect.tryPromise(async () => {
+          const { trusted } = await started.rpc.permissions.folderTrust.isTrusted({
+            path: directory,
+          });
+          if (!trusted) {
+            await started.rpc.permissions.folderTrust.addTrusted({ path: directory });
+            await started.rpc.skills.ensureLoaded();
+          }
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Copilot folder trust setup failed.", { cause: String(cause) }),
+          ),
+        );
+
         // Diagnostic ground truth: log what the runtime actually
         // discovered for this session (skills by source + session cwd).
         yield* Effect.tryPromise(() => started.rpc.skills.list()).pipe(
