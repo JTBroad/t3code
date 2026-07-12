@@ -68,6 +68,8 @@ export const makeCopilotTextGeneration = Effect.fn("makeCopilotTextGeneration")(
           await client.start();
           const session = await client.createSession({
             model: modelSelection.model,
+            // Keep generations deterministic: no repo instructions/skills.
+            skipCustomInstructions: true,
             // Text generation must not run tools or touch the workspace.
             onPermissionRequest: () => ({
               kind: "reject" as const,

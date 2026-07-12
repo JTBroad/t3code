@@ -990,6 +990,11 @@ export function makeCopilotAdapter(
               ? { reasoningEffort: reasoningEffort as "low" | "medium" | "high" | "xhigh" }
               : {}),
             streaming: true,
+            // Match interactive-CLI behavior: discover skill directories
+            // and MCP configs (.mcp.json, .github/skills, ~/.copilot/skills)
+            // from the working directory + user config. The SDK defaults
+            // this to false.
+            enableConfigDiscovery: true,
             ...(mcpSession
               ? {
                   mcpServers: {
