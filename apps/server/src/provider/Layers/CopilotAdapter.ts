@@ -861,8 +861,30 @@ export function makeCopilotAdapter(
         const resumeState = readCopilotResumeState(input.resumeCursor);
         const runtimeMode = input.runtimeMode;
 
+        // Project skill directories under the thread cwd. Passed through
+        // TWO channels because the runtime has two skill pipelines:
+        //  - sessionConfig.skillDirectories feeds session RPCs (skills.list)
+        //  - COPILOT_SKILLS_DIRS (env, read by the CLI's skillsLoad) feeds
+        //    the model-facing roster (system prompt / skill tool). The
+        //    system-prompt builder was observed to ignore session-level
+        //    directories and config discovery entirely.
+        const projectSkillDirectories = [
+          NodePath.join(directory, ".github", "skills"),
+          NodePath.join(directory, ".agents", "skills"),
+          NodePath.join(directory, ".claude", "skills"),
+        ].filter((candidate) => NodeFS.existsSync(candidate));
+
+        const baseClientOptions = makeCopilotClientOptions(copilotSettings, options?.environment);
         const client = new CopilotClient({
-          ...makeCopilotClientOptions(copilotSettings, options?.environment),
+          ...baseClientOptions,
+          ...(projectSkillDirectories.length > 0
+            ? {
+                env: {
+                  ...baseClientOptions?.env,
+                  COPILOT_SKILLS_DIRS: projectSkillDirectories.join(NodePath.delimiter),
+                },
+              }
+            : {}),
           workingDirectory: directory,
         });
 
@@ -1022,17 +1044,6 @@ export function makeCopilotAdapter(
         // Expose t3code's per-thread MCP endpoint (native tools) to the
         // Copilot session, mirroring the OpenCode adapter's `mcp.add`.
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
-
-        // Project skill directories, passed explicitly. Config discovery
-        // finds these (skills.list reports them), but the session's model
-        // pipeline has been observed not to load project-scope sources;
-        // explicit skillDirectories load through the same path as
-        // personal skills and take precedence on name collision.
-        const projectSkillDirectories = [
-          NodePath.join(directory, ".github", "skills"),
-          NodePath.join(directory, ".agents", "skills"),
-          NodePath.join(directory, ".claude", "skills"),
-        ].filter((candidate) => NodeFS.existsSync(candidate));
 
         const started = yield* Effect.tryPromise(async () => {
           await client.start();
