@@ -127,6 +127,17 @@ export function makeCopilotEnvironment(
     // fall past the cutoff and become retrieval-only. Raise it so every
     // discovered skill is listed. Respect a user-provided override.
     ...(base.SKILL_CHAR_BUDGET ? {} : { SKILL_CHAR_BUDGET: "65536" }),
+    // Deterministic skill exposure: without this flag the runtime leaves
+    // skill surfacing to embedding retrieval (server-side experiment
+    // assignment), which has been observed to omit project skills
+    // entirely. Forcing skills_list_in_system_prompt puts the full skill
+    // roster in the system message. Respect a user-provided override.
+    ...(base.COPILOT_CLI_ENABLED_FEATURE_FLAGS
+      ? {}
+      : {
+          COPILOT_CLI_ENABLED_FEATURE_FLAGS:
+            "skills_list_in_system_prompt,SKILLS_LIST_IN_SYSTEM_PROMPT,copilot_cli_skills_list_in_system_prompt",
+        }),
     ...(copilotSettings.homePath.length > 0 ? { COPILOT_HOME: copilotSettings.homePath } : {}),
   };
 }
