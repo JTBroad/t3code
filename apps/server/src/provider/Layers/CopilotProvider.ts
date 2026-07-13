@@ -142,9 +142,16 @@ export function makeCopilotEnvironment(
   };
 }
 
+export interface CopilotProbedSkill {
+  readonly name: string;
+  readonly description: string;
+  readonly userInvocable: boolean;
+}
+
 export interface CopilotCapabilitiesProbe {
   readonly auth: GetAuthStatusResponse;
   readonly models: ReadonlyArray<ModelInfo>;
+  readonly skills: ReadonlyArray<CopilotProbedSkill>;
 }
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 30_000;
@@ -236,7 +243,28 @@ export const probeCopilotCapabilities = (
         await client.start();
         const auth = await client.getAuthStatus();
         const models = auth.isAuthenticated ? await client.listModels() : [];
-        return { auth, models } satisfies CopilotCapabilitiesProbe;
+        // Personal/builtin user-invocable skills double as slash commands.
+        // (Project skills are per-thread and can't live in the instance
+        // snapshot; the runtime still expands them when typed manually.)
+        let skills: Array<CopilotProbedSkill> = [];
+        try {
+          const session = await client.createSession({});
+          try {
+            const list = await session.rpc.skills.list();
+            skills = (list.skills ?? []).map(
+              (skill: { name: string; description: string; userInvocable: boolean }) => ({
+                name: skill.name,
+                description: skill.description,
+                userInvocable: skill.userInvocable,
+              }),
+            );
+          } finally {
+            await session.disconnect().catch(() => undefined);
+          }
+        } catch {
+          // Skill listing is best-effort; the provider works without it.
+        }
+        return { auth, models, skills } satisfies CopilotCapabilitiesProbe;
       } finally {
         await client.stop().catch(() => client.forceStop().catch(() => undefined));
       }
@@ -466,11 +494,19 @@ export const checkCopilotProviderStatus = Effect.fn("checkCopilotProviderStatus"
         )
       : models;
 
+  const slashCommands = capabilities.skills
+    .filter((skill) => skill.userInvocable)
+    .map((skill) => ({
+      name: skill.name,
+      ...(skill.description ? { description: skill.description } : {}),
+    }));
+
   return buildServerProvider({
     presentation: COPILOT_PRESENTATION,
     enabled: copilotSettings.enabled,
     checkedAt,
     models: dynamicModels,
+    slashCommands,
     probe: {
       installed: true,
       version: parsedVersion,
