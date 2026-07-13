@@ -439,22 +439,6 @@ export function makeCopilotAdapter(
         payload: event,
       });
 
-      // TEMP diagnostic: surface every event that carries skill context so
-      // we can see exactly what reaches the model's <available_skills>.
-      const diagnosticType: string = event.type;
-      if (diagnosticType === "system.message" || diagnosticType === "instruction_discovered") {
-        const serialized = JSON.stringify(data);
-        const skillsIndex = serialized.indexOf("available_skills");
-        yield* Effect.logInfo("Copilot context event.", {
-          type: event.type,
-          hasAvailableSkills: skillsIndex >= 0,
-          snippet:
-            skillsIndex >= 0
-              ? serialized.slice(skillsIndex, skillsIndex + 3000)
-              : serialized.slice(0, 1200),
-        });
-      }
-
       switch (event.type) {
         case "assistant.turn_start": {
           context.providerTurnId = typeof data.turnId === "string" ? data.turnId : undefined;
@@ -555,13 +539,6 @@ export function makeCopilotAdapter(
 
         case "tool.execution_start": {
           const toolName = typeof data.toolName === "string" ? data.toolName : "tool";
-          // H5 diagnostic: did the model actually attempt a skill invocation?
-          if (toolName === "skill") {
-            yield* Effect.logInfo("Copilot skill tool invoked.", {
-              threadId,
-              args: data.arguments,
-            });
-          }
           const mcpServerName =
             typeof data.mcpServerName === "string" ? data.mcpServerName : undefined;
           const itemType = toCopilotToolLifecycleItemType(toolName, mcpServerName);
@@ -621,20 +598,6 @@ export function makeCopilotAdapter(
         case "tool.execution_complete": {
           const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : event.id;
           const success = data.success === true;
-          // H5 diagnostic: how did the runtime answer a skill invocation?
-          {
-            const desc =
-              data.toolDescription && typeof data.toolDescription === "object"
-                ? (data.toolDescription as Record<string, unknown>)
-                : undefined;
-            if (desc?.name === "skill" || (data as { toolName?: unknown }).toolName === "skill") {
-              yield* Effect.logInfo("Copilot skill tool completed.", {
-                threadId,
-                success,
-                result: JSON.stringify(data.result ?? data.error).slice(0, 800),
-              });
-            }
-          }
           const result =
             data.result && typeof data.result === "object"
               ? (data.result as Record<string, unknown>)
@@ -1171,62 +1134,18 @@ export function makeCopilotAdapter(
           ),
         );
 
-        // Diagnostic ground truth, one bundle per session start:
-        //  - H1: runtime/protocol versions + the exact session config sent
-        //  - H2: current/selected agent (agent-level skill scoping)
-        //  - H4: full skill records (paths, description lengths, flags)
-        yield* Effect.tryPromise(async () => {
-          const [status, list, trust, currentAgent, agents] = await Promise.all([
-            client.getStatus?.() ?? Promise.resolve(undefined),
-            started.rpc.skills.list(),
-            started.rpc.permissions.folderTrust.isTrusted({ path: directory }),
-            started.rpc.agent.getCurrent().catch((error: Error) => `err: ${error.message}`),
-            started.rpc.agent.list().catch((error: Error) => `err: ${error.message}`),
-          ]);
-          return { status, list, trust, currentAgent, agents };
-        }).pipe(
-          Effect.flatMap(({ status, list, trust, currentAgent, agents }) =>
-            Effect.logInfo("Copilot session debug bundle.", {
+        // One concise line per session with the discovered skill roster.
+        yield* Effect.tryPromise(() => started.rpc.skills.list()).pipe(
+          Effect.flatMap((list) =>
+            Effect.logDebug("Copilot session started.", {
               threadId: input.threadId,
               cwd: directory,
-              trusted: trust.trusted,
-              runtimeStatus: status,
-              sessionConfigSent: {
-                model: modelSelection?.model,
-                reasoningEffort,
-                streaming: true,
-                workingDirectory: directory,
-                enableConfigDiscovery: true,
-                skillDirectories: projectSkillDirectories,
-                mcpServers: mcpSession ? ["t3-code"] : [],
-                resumed: resumeState?.copilotSessionId !== undefined,
-              },
-              currentAgent,
-              agents,
               skills: (list.skills ?? []).map(
-                (skill: {
-                  name: string;
-                  source: string;
-                  enabled: boolean;
-                  userInvocable: boolean;
-                  path?: string;
-                  projectPath?: string;
-                  description: string;
-                }) => ({
-                  name: skill.name,
-                  source: skill.source,
-                  enabled: skill.enabled,
-                  userInvocable: skill.userInvocable,
-                  path: skill.path,
-                  projectPath: skill.projectPath,
-                  descriptionLength: skill.description?.length ?? 0,
-                }),
+                (skill: { name: string; source: string }) => `${skill.source}:${skill.name}`,
               ),
             }),
           ),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Copilot debug bundle failed.", { cause: String(cause) }),
-          ),
+          Effect.catchCause(() => Effect.void),
         );
 
         yield* emit({

@@ -236,6 +236,33 @@ Copilot plan mode); treat as `default`.
 Definition of done per AGENTS.md: `vp check` and `vp run typecheck` pass; adapter tests
 green via `vp run test`.
 
+## Field notes (learned debugging skills on macOS, CLI 1.0.70)
+
+1. **Spawn under vp:** the SDK spawns its bundled CLI as `process.execPath
+   index.js …`, which breaks when the host runs under the Vite+ runtime.
+   The adapter resolves the platform package's native `copilot` binary and
+   passes it via `RuntimeConnection.forStdio` (see
+   `resolveBundledCopilotBinaryPath`).
+2. **Folder trust:** SDK sessions never show the CLI's trust prompt;
+   untrusted cwds silently withhold project config. The adapter trusts the
+   thread cwd at session start (`permissions.folderTrust.addTrusted`).
+3. **Two skill pipelines:** session RPCs (`skills.list`) honor config
+   discovery + `sessionConfig.skillDirectories`; the model-facing roster is
+   a separate `skillsLoad` (personal/builtin + `COPILOT_SKILLS_DIRS` env).
+   The adapter feeds project skill dirs through both channels.
+4. **`disable-model-invocation: true`** in SKILL.md frontmatter keeps a
+   skill user-invocable (slash command) but hides it from the model —
+   Claude/Cowork-format skills often set this; it is honored by Copilot.
+5. **Slash commands:** the runtime expands a leading `/skill-name` inside
+   the prompt text of a normal `send()`. Personal user-invocable skills are
+   published as provider `slashCommands` for composer autocomplete;
+   project-scoped ones work when typed manually (instance-level snapshots
+   can't carry per-thread commands).
+6. Useful envs: `COPILOT_DEBUG=1` (adapter option → CLI debug logs),
+   `SKILL_CHAR_BUDGET`, `COPILOT_CLI_ENABLED_FEATURE_FLAGS`
+   (e.g. `skills_list_in_system_prompt` for a deterministic roster instead
+   of embedding retrieval), `COPILOT_SKILLS_DIRS`.
+
 ## Open questions / spikes
 
 1. **Per-turn token usage** — does the SDK surface usage outside compaction events?
