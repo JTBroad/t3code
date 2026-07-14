@@ -97,7 +97,12 @@ function getSelectedTraits(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "boolean" }> =>
       descriptor.type === "boolean",
   );
-  const primarySelectDescriptor = selectDescriptors[0] ?? null;
+  // Dedicated selects (agent, contextWindow) are never the effort-style
+  // primary descriptor; see composerProviderState for the same rule.
+  const primarySelectDescriptor =
+    selectDescriptors.find(
+      (descriptor) => descriptor.id !== "agent" && descriptor.id !== "contextWindow",
+    ) ?? null;
   const contextWindowDescriptor =
     selectDescriptors.find((descriptor) => descriptor.id === "contextWindow") ?? null;
   const agentDescriptor = selectDescriptors.find((descriptor) => descriptor.id === "agent") ?? null;

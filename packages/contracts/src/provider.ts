@@ -109,6 +109,56 @@ export const ProviderRespondToUserInputInput = Schema.Struct({
 });
 export type ProviderRespondToUserInputInput = typeof ProviderRespondToUserInputInput.Type;
 
+/**
+ * Where a discovered custom agent definition was loaded from.
+ * Mirrors the Copilot runtime's `AgentInfoSource` values but is provider
+ * agnostic; unknown sources decode as "unknown".
+ */
+export const ProviderCustomAgentSource = Schema.Literals([
+  "user",
+  "project",
+  "inherited",
+  "remote",
+  "plugin",
+  "builtin",
+  "unknown",
+]);
+export type ProviderCustomAgentSource = typeof ProviderCustomAgentSource.Type;
+
+/**
+ * A user-selectable custom agent discovered for a provider instance
+ * (e.g. GitHub Copilot custom agents from `.github/agents` or the
+ * user-level agent directory).
+ */
+export const ProviderCustomAgent = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  displayName: TrimmedNonEmptyString,
+  description: Schema.optional(Schema.String),
+  source: Schema.optional(ProviderCustomAgentSource),
+});
+export type ProviderCustomAgent = typeof ProviderCustomAgent.Type;
+
+export const ProviderListAgentsInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  /** Workspace directory to scan for project-scoped agents. */
+  cwd: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderListAgentsInput = typeof ProviderListAgentsInput.Type;
+
+export const ProviderListAgentsResult = Schema.Struct({
+  agents: Schema.Array(ProviderCustomAgent),
+});
+export type ProviderListAgentsResult = typeof ProviderListAgentsResult.Type;
+
+export class ProviderListAgentsError extends Schema.TaggedErrorClass<ProviderListAgentsError>()(
+  "ProviderListAgentsError",
+  {
+    instanceId: ProviderInstanceId,
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 const ProviderEventKind = Schema.Literals(["session", "notification", "request", "error"]);
 
 export const ProviderEvent = Schema.Struct({

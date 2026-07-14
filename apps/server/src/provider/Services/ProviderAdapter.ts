@@ -10,6 +10,7 @@
 import type {
   ApprovalRequestId,
   ProviderApprovalDecision,
+  ProviderCustomAgent,
   ProviderDriverKind,
   ProviderUserInputAnswers,
   ProviderRuntimeEvent,
@@ -118,6 +119,17 @@ export interface ProviderAdapterShape<TError> {
    * Stop all sessions owned by this adapter.
    */
   readonly stopAll: () => Effect.Effect<void, TError>;
+
+  /**
+   * List user-selectable custom agents for this provider instance.
+   *
+   * Optional: adapters whose runtime has no custom-agent concept omit it,
+   * and transports return an empty list. `cwd` scopes discovery to a
+   * workspace directory for project-level agent definitions.
+   */
+  readonly listAgents?: (input: {
+    readonly cwd?: string;
+  }) => Effect.Effect<ReadonlyArray<ProviderCustomAgent>, TError>;
 
   /**
    * Canonical runtime event stream emitted by this adapter.

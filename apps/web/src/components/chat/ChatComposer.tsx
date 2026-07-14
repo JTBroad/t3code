@@ -58,6 +58,9 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
+import { useEnvironmentQuery } from "../../state/query";
+import { providersEnvironment } from "../../state/providers";
+import { isCopilotProvider, withCopilotAgentDescriptor } from "./copilotAgents";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
@@ -781,9 +784,34 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => selectedProviderEntry?.snapshot ?? null,
     [selectedProviderEntry],
   );
-  const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
+  const baseSelectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],
+  );
+
+  // Copilot custom agents: discover per instance + thread cwd and surface
+  // them as an "agent" select descriptor on the selected provider's models,
+  // rendered by the traits controls as an Agent dropdown next to Reasoning.
+  const copilotAgentsQuery = useEnvironmentQuery(
+    isCopilotProvider(selectedProvider) && selectedInstanceId
+      ? providersEnvironment.listAgents({
+          environmentId,
+          input: {
+            instanceId: selectedInstanceId,
+            ...(gitCwd ? { cwd: gitCwd } : {}),
+          },
+        })
+      : null,
+  );
+  const copilotAgents = copilotAgentsQuery.data?.agents;
+  const selectedProviderModels = useMemo(
+    () =>
+      withCopilotAgentDescriptor({
+        provider: selectedProvider,
+        models: baseSelectedProviderModels,
+        agents: copilotAgents,
+      }),
+    [baseSelectedProviderModels, copilotAgents, selectedProvider],
   );
 
   const composerPromptInjectionState = useMemo(

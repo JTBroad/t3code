@@ -2,9 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   mapCopilotPermissionKindToRequestType,
+  normalizeCopilotAgentSelection,
   readCopilotResumeState,
   summarizeCopilotPermissionRequest,
   toCopilotToolLifecycleItemType,
+  toProviderCustomAgents,
 } from "./CopilotAdapter.ts";
 import { copilotModelsFromModelInfo } from "./CopilotProvider.ts";
 
@@ -85,6 +87,63 @@ describe("readCopilotResumeState", () => {
     expect(readCopilotResumeState("abc")).toBeUndefined();
     expect(readCopilotResumeState({ copilotSessionId: "" })).toBeUndefined();
     expect(readCopilotResumeState({ other: true })).toBeUndefined();
+  });
+});
+
+describe("normalizeCopilotAgentSelection", () => {
+  it("passes through custom agent names", () => {
+    expect(normalizeCopilotAgentSelection("code-reviewer")).toBe("code-reviewer");
+    expect(normalizeCopilotAgentSelection("  spaced  ")).toBe("spaced");
+  });
+
+  it("normalizes absent/default selections to undefined", () => {
+    expect(normalizeCopilotAgentSelection(undefined)).toBeUndefined();
+    expect(normalizeCopilotAgentSelection("")).toBeUndefined();
+    expect(normalizeCopilotAgentSelection("   ")).toBeUndefined();
+    expect(normalizeCopilotAgentSelection("default")).toBeUndefined();
+  });
+});
+
+describe("toProviderCustomAgents", () => {
+  it("maps SDK AgentInfo entries to the contract shape", () => {
+    expect(
+      toProviderCustomAgents([
+        {
+          name: "code-reviewer",
+          displayName: "Code Reviewer",
+          description: "Reviews diffs",
+          source: "project",
+          userInvocable: true,
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "code-reviewer",
+        displayName: "Code Reviewer",
+        description: "Reviews diffs",
+        source: "project",
+      },
+    ]);
+  });
+
+  it("filters non-invocable agents and reserved/empty names", () => {
+    expect(
+      toProviderCustomAgents([
+        { name: "hidden", displayName: "Hidden", userInvocable: false },
+        { name: "", displayName: "Empty" },
+        { name: "default", displayName: "Reserved" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("falls back to name for missing displayName and unknown for odd sources", () => {
+    expect(toProviderCustomAgents([{ name: "docs", source: "martian" }])).toEqual([
+      { name: "docs", displayName: "docs", source: "unknown" },
+    ]);
+  });
+
+  it("tolerates undefined agent lists", () => {
+    expect(toProviderCustomAgents(undefined)).toEqual([]);
   });
 });
 
