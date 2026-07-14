@@ -1131,6 +1131,17 @@ export function makeCopilotAdapter(
             // discovery (.github/skills, .mcp.json) resolve against this,
             // not the client/runtime workingDirectory.
             workingDirectory: directory,
+            // Instance-level custom instructions, appended after the
+            // SDK-managed system prompt sections (guardrails preserved).
+            // Applies to every created AND resumed session.
+            ...(copilotSettings.customInstructions.length > 0
+              ? {
+                  systemMessage: {
+                    mode: "append" as const,
+                    content: copilotSettings.customInstructions,
+                  },
+                }
+              : {}),
             // Match interactive-CLI behavior: discover skill directories
             // and MCP configs (.mcp.json, .github/skills, ~/.copilot/skills)
             // from the working directory + user config. The SDK defaults

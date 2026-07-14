@@ -331,13 +331,26 @@ export const CopilotSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    customInstructions: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Custom instructions",
+        description:
+          "Appended to the system prompt of every new Copilot session, on top of the CLI's built-in instructions.",
+        providerSettingsForm: {
+          control: "textarea",
+          placeholder: "e.g. Always respond concisely. Prefer functional patterns.",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
     customModels: Schema.Array(Schema.String).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "homePath"],
+    order: ["binaryPath", "homePath", "customInstructions"],
   },
 );
 export type CopilotSettings = typeof CopilotSettings.Type;
@@ -535,6 +548,7 @@ const CopilotSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
   homePath: Schema.optionalKey(TrimmedString),
+  customInstructions: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
