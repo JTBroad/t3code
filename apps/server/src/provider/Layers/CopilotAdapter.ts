@@ -13,6 +13,8 @@ import {
   type CanonicalRequestType,
   type CopilotSettings,
   EventId,
+  type ProviderCustomAgent,
+  type ProviderCustomAgentSource,
   type ProviderApprovalDecision,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -32,6 +34,7 @@ import * as NodePath from "node:path";
 
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
@@ -103,6 +106,8 @@ interface CopilotSessionContext {
   activeTurnId: TurnId | undefined;
   /** Provider-side turn id from `assistant.turn_start` (for providerRefs). */
   providerTurnId: string | undefined;
+  /** Currently selected custom agent name; undefined = default agent. */
+  currentAgent: string | undefined;
   /** Serializes SDK event handling in arrival order. */
   eventChain: Promise<void>;
   /** Running token totals across the thread. */
@@ -258,6 +263,70 @@ function updateProviderSession(
   });
 }
 
+/**
+ * Sentinel option value meaning "no custom agent" — the composer's Agent
+ * dropdown always includes it so users can return to the default agent.
+ */
+export const COPILOT_DEFAULT_AGENT_OPTION = "default";
+
+/** Normalize a persisted agent selection: absent/default → undefined. */
+export function normalizeCopilotAgentSelection(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed !== COPILOT_DEFAULT_AGENT_OPTION ? trimmed : undefined;
+}
+
+const KNOWN_AGENT_SOURCES: ReadonlySet<string> = new Set([
+  "user",
+  "project",
+  "inherited",
+  "remote",
+  "plugin",
+  "builtin",
+]);
+
+/** Shape of one SDK `AgentInfo` entry (subset the adapter consumes). */
+interface CopilotAgentInfoLike {
+  readonly name?: unknown;
+  readonly displayName?: unknown;
+  readonly description?: unknown;
+  readonly source?: unknown;
+  readonly userInvocable?: unknown;
+}
+
+export function toProviderCustomAgents(
+  agents: ReadonlyArray<CopilotAgentInfoLike> | undefined,
+): ReadonlyArray<ProviderCustomAgent> {
+  return (agents ?? []).flatMap((agent) => {
+    if (agent.userInvocable === false) {
+      return [];
+    }
+    const name = typeof agent.name === "string" ? agent.name.trim() : "";
+    if (name.length === 0 || name === COPILOT_DEFAULT_AGENT_OPTION) {
+      return [];
+    }
+    const displayName =
+      typeof agent.displayName === "string" && agent.displayName.trim().length > 0
+        ? agent.displayName.trim()
+        : name;
+    const description =
+      typeof agent.description === "string" && agent.description.trim().length > 0
+        ? agent.description
+        : undefined;
+    const source: ProviderCustomAgentSource =
+      typeof agent.source === "string" && KNOWN_AGENT_SOURCES.has(agent.source)
+        ? (agent.source as ProviderCustomAgentSource)
+        : "unknown";
+    return [
+      {
+        name,
+        displayName,
+        ...(description !== undefined ? { description } : {}),
+        source,
+      },
+    ];
+  });
+}
+
 /** Resume-cursor shape persisted per thread. */
 export interface CopilotResumeState {
   readonly copilotSessionId?: string;
@@ -286,6 +355,14 @@ export function makeCopilotAdapter(
     const nativeEventLogger = options?.nativeEventLogger;
     const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
     const sessions = new Map<ThreadId, CopilotSessionContext>();
+
+    /** Best-effort cache for custom-agent discovery, keyed by cwd. */
+    const AGENT_DISCOVERY_TTL_MS = 30_000;
+    const AGENT_DISCOVERY_TIMEOUT_MS = 20_000;
+    const agentDiscoveryCache = new Map<
+      string,
+      { readonly at: number; readonly agents: ReadonlyArray<ProviderCustomAgent> }
+    >();
 
     const randomUUIDv4 = crypto.randomUUIDv4.pipe(
       Effect.mapError((cause) => toRequestError("crypto/randomUUIDv4", cause)),
@@ -336,16 +413,12 @@ export function makeCopilotAdapter(
       context.pendingApprovals.clear();
       const userInputs = [...context.pendingUserInputs.values()];
       context.pendingUserInputs.clear();
-      yield* Effect.forEach(
-        approvals,
-        (pending) => Deferred.succeed(pending.decision, "cancel"),
-        { discard: true },
-      );
-      yield* Effect.forEach(
-        userInputs,
-        (pending) => Deferred.succeed(pending.answers, {}),
-        { discard: true },
-      );
+      yield* Effect.forEach(approvals, (pending) => Deferred.succeed(pending.decision, "cancel"), {
+        discard: true,
+      });
+      yield* Effect.forEach(userInputs, (pending) => Deferred.succeed(pending.answers, {}), {
+        discard: true,
+      });
     });
 
     const stopCopilotContext = Effect.fn("stopCopilotContext")(function* (
@@ -492,9 +565,10 @@ export function makeCopilotAdapter(
         case "assistant.message": {
           const content = typeof data.content === "string" ? data.content : "";
           const itemId = typeof data.messageId === "string" ? data.messageId : event.id;
-          resolveTurnSnapshot(context, turnId ?? TurnId.make(`copilot-orphan-${event.id}`)).items.push(
-            event,
-          );
+          resolveTurnSnapshot(
+            context,
+            turnId ?? TurnId.make(`copilot-orphan-${event.id}`),
+          ).items.push(event);
           yield* emit({
             ...(yield* buildEventBase({
               threadId,
@@ -613,9 +687,10 @@ export function makeCopilotAdapter(
             : typeof error?.message === "string"
               ? error.message
               : undefined;
-          resolveTurnSnapshot(context, turnId ?? TurnId.make(`copilot-orphan-${event.id}`)).items.push(
-            event,
-          );
+          resolveTurnSnapshot(
+            context,
+            turnId ?? TurnId.make(`copilot-orphan-${event.id}`),
+          ).items.push(event);
           yield* emit({
             ...(yield* buildEventBase({
               threadId,
@@ -806,6 +881,39 @@ export function makeCopilotAdapter(
       context.unsubscribe = unsubscribe;
     };
 
+    /**
+     * Apply a custom-agent selection to a live session, best-effort.
+     *
+     * Unknown/stale agent names (e.g. a persisted selection whose definition
+     * file was deleted) log a warning instead of failing the session/turn.
+     */
+    const applyAgentSelection = Effect.fn("applyAgentSelection")(function* (
+      context: CopilotSessionContext,
+      desiredAgent: string | undefined,
+    ) {
+      if (desiredAgent === context.currentAgent) {
+        return;
+      }
+      yield* Effect.tryPromise(() =>
+        desiredAgent !== undefined
+          ? context.copilotSession.rpc.agent.select({ name: desiredAgent }).then(() => undefined)
+          : context.copilotSession.rpc.agent.deselect(),
+      ).pipe(
+        Effect.flatMap(() =>
+          Effect.sync(() => {
+            context.currentAgent = desiredAgent;
+          }),
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Copilot custom agent selection failed.", {
+            threadId: context.session.threadId,
+            agent: desiredAgent ?? COPILOT_DEFAULT_AGENT_OPTION,
+            cause: String(cause),
+          }),
+        ),
+      );
+    });
+
     const startSession: CopilotAdapterShape["startSession"] = Effect.fn("startSession")(
       function* (input) {
         const directory = input.cwd ?? serverConfig.cwd;
@@ -820,6 +928,9 @@ export function makeCopilotAdapter(
         const reasoningEffort = getModelSelectionStringOptionValue(
           modelSelection,
           "reasoningEffort",
+        );
+        const selectedAgent = normalizeCopilotAgentSelection(
+          getModelSelectionStringOptionValue(modelSelection, "agent"),
         );
         const resumeState = readCopilotResumeState(input.resumeCursor);
         const runtimeMode = input.runtimeMode;
@@ -1102,6 +1213,7 @@ export function makeCopilotAdapter(
           turns: [],
           activeTurnId: undefined,
           providerTurnId: undefined,
+          currentAgent: undefined,
           eventChain: Promise.resolve(),
           totalInputTokens: 0,
           totalOutputTokens: 0,
@@ -1133,6 +1245,11 @@ export function makeCopilotAdapter(
             Effect.logWarning("Copilot folder trust setup failed.", { cause: String(cause) }),
           ),
         );
+
+        // Activate the thread's custom agent (if any) before the first turn.
+        if (selectedAgent !== undefined) {
+          yield* applyAgentSelection(context, selectedAgent);
+        }
 
         // One concise line per session with the discovered skill roster.
         yield* Effect.tryPromise(() => started.rpc.skills.list()).pipe(
@@ -1185,9 +1302,7 @@ export function makeCopilotAdapter(
           attachmentsDir: serverConfig.attachmentsDir,
           attachment,
         });
-        return path
-          ? [{ type: "file" as const, path, displayName: attachment.name }]
-          : [];
+        return path ? [{ type: "file" as const, path, displayName: attachment.name }] : [];
       });
       if ((!text || text.length === 0) && attachments.length === 0) {
         return yield* new ProviderAdapterValidationError({
@@ -1199,16 +1314,24 @@ export function makeCopilotAdapter(
 
       // In-session model switch via session.setModel when the selection
       // differs from the session's current model.
-      if (
-        modelSelection?.model !== undefined &&
-        modelSelection.model !== context.session.model
-      ) {
+      if (modelSelection?.model !== undefined && modelSelection.model !== context.session.model) {
         yield* runSdk("session.setModel", () =>
           context.copilotSession.setModel(modelSelection.model, {
             ...(reasoningEffort
               ? { reasoningEffort: reasoningEffort as "low" | "medium" | "high" | "xhigh" }
               : {}),
           }),
+        );
+      }
+
+      // In-session custom agent switch: apply before the turn is sent so
+      // the prompt runs under the newly selected agent.
+      if (modelSelection !== undefined) {
+        yield* applyAgentSelection(
+          context,
+          normalizeCopilotAgentSelection(
+            getModelSelectionStringOptionValue(modelSelection, "agent"),
+          ),
         );
       }
 
@@ -1291,20 +1414,20 @@ export function makeCopilotAdapter(
       },
     );
 
-    const respondToRequest: CopilotAdapterShape["respondToRequest"] = Effect.fn(
-      "respondToRequest",
-    )(function* (threadId, requestId, decision) {
-      const context = ensureSessionContext(sessions, threadId);
-      const pending = context.pendingApprovals.get(requestId);
-      if (!pending) {
-        return yield* new ProviderAdapterRequestError({
-          provider: PROVIDER,
-          method: "respondToRequest",
-          detail: `Unknown pending Copilot approval request: ${requestId}`,
-        });
-      }
-      yield* Deferred.succeed(pending.decision, decision);
-    });
+    const respondToRequest: CopilotAdapterShape["respondToRequest"] = Effect.fn("respondToRequest")(
+      function* (threadId, requestId, decision) {
+        const context = ensureSessionContext(sessions, threadId);
+        const pending = context.pendingApprovals.get(requestId);
+        if (!pending) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "respondToRequest",
+            detail: `Unknown pending Copilot approval request: ${requestId}`,
+          });
+        }
+        yield* Deferred.succeed(pending.decision, decision);
+      },
+    );
 
     const respondToUserInput: CopilotAdapterShape["respondToUserInput"] = Effect.fn(
       "respondToUserInput",
@@ -1344,6 +1467,58 @@ export function makeCopilotAdapter(
             exitKind: "graceful",
           },
         });
+      },
+    );
+
+    const listAgents: NonNullable<CopilotAdapterShape["listAgents"]> = Effect.fn("listAgents")(
+      function* (input) {
+        const cacheKey = input.cwd ?? "";
+        const cached = agentDiscoveryCache.get(cacheKey);
+        if (cached && Date.now() - cached.at < AGENT_DISCOVERY_TTL_MS) {
+          return cached.agents;
+        }
+
+        // Reuse a live session's client when one matches the requested cwd —
+        // discovery then avoids spawning a fresh CLI process.
+        const liveContext = [...sessions.values()].find(
+          (context) =>
+            !Ref.getUnsafe(context.stopped) &&
+            (input.cwd === undefined || context.session.cwd === input.cwd),
+        );
+        const client =
+          liveContext?.client ??
+          new CopilotClient(makeCopilotClientOptions(copilotSettings, options?.environment));
+        const ephemeral = liveContext === undefined;
+
+        const discovered = yield* Effect.tryPromise(async () => {
+          try {
+            if (ephemeral) {
+              await client.start();
+            }
+            const list = await client.rpc.agents.discover({
+              ...(input.cwd ? { projectPaths: [input.cwd] } : {}),
+            });
+            return toProviderCustomAgents(list.agents);
+          } finally {
+            if (ephemeral) {
+              await client.stop().catch(() => client.forceStop().catch(() => undefined));
+            }
+          }
+        }).pipe(
+          Effect.mapError((cause) => toRequestError("agents.discover", cause.cause)),
+          Effect.timeoutOption(AGENT_DISCOVERY_TIMEOUT_MS),
+        );
+
+        if (Option.isNone(discovered)) {
+          yield* Effect.logWarning("Copilot agent discovery timed out.", {
+            timeoutMs: AGENT_DISCOVERY_TIMEOUT_MS,
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+          });
+          return [];
+        }
+
+        agentDiscoveryCache.set(cacheKey, { at: Date.now(), agents: discovered.value });
+        return discovered.value;
       },
     );
 
@@ -1396,7 +1571,10 @@ export function makeCopilotAdapter(
 
         return {
           threadId,
-          turns: turns.length > 0 ? turns : context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
+          turns:
+            turns.length > 0
+              ? turns
+              : context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
         };
       },
     );
@@ -1433,6 +1611,7 @@ export function makeCopilotAdapter(
       respondToUserInput,
       stopSession,
       listSessions,
+      listAgents,
       hasSession,
       readThread,
       rollbackThread,

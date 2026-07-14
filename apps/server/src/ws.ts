@@ -43,6 +43,7 @@ import {
   ProjectReadFileError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
+  ProviderListAgentsError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
   OrchestrationReplayEventsError,
@@ -75,6 +76,7 @@ import {
   observeRpcStream as instrumentRpcStream,
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
+import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -285,6 +287,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.subscribeThread, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetConfig, AuthOrchestrationReadScope],
+  [WS_METHODS.providersListAgents, AuthOrchestrationReadScope],
   [WS_METHODS.serverRefreshProviders, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpdateProvider, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpsertKeybinding, AuthOrchestrationOperateScope],
@@ -408,6 +411,7 @@ const makeWsRpcLayer = (
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+      const providerInstanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -1242,6 +1246,40 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.providersListAgents]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providersListAgents,
+            Effect.gen(function* () {
+              const instance = yield* providerInstanceRegistry.getInstance(input.instanceId);
+              if (!instance) {
+                return yield* new ProviderListAgentsError({
+                  instanceId: input.instanceId,
+                  reason: `Unknown provider instance: ${input.instanceId}`,
+                });
+              }
+              const listAgents = instance.adapter.listAgents;
+              if (!listAgents) {
+                return { agents: [] };
+              }
+              const agents = yield* listAgents({
+                ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderListAgentsError({
+                      instanceId: input.instanceId,
+                      reason:
+                        cause instanceof Error && cause.message.length > 0
+                          ? cause.message
+                          : "Custom agent discovery failed.",
+                      cause,
+                    }),
+                ),
+              );
+              return { agents };
+            }),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,

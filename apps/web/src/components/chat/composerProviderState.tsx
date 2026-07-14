@@ -56,9 +56,14 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
   const { provider, model, models, modelOptions, promptInjectionState = "none" } = input;
   const caps = getProviderModelCapabilities(models, model, provider);
   const descriptors = getProviderOptionDescriptors({ caps, selections: modelOptions });
+  // "agent" and "contextWindow" selects are dedicated controls, never the
+  // effort-style primary select (e.g. a copilot model with custom agents
+  // but no reasoning options must not report the agent as promptEffort).
   const primarySelectDescriptor = descriptors.find(
     (descriptor): descriptor is Extract<(typeof descriptors)[number], { type: "select" }> =>
-      descriptor.type === "select",
+      descriptor.type === "select" &&
+      descriptor.id !== "agent" &&
+      descriptor.id !== "contextWindow",
   );
   const primaryValue = getProviderOptionCurrentValue(primarySelectDescriptor ?? null);
   const promptEffort = typeof primaryValue === "string" ? primaryValue : null;

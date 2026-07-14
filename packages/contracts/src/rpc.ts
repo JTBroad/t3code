@@ -58,6 +58,11 @@ import {
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
 } from "./orchestration.ts";
+import {
+  ProviderListAgentsError,
+  ProviderListAgentsInput,
+  ProviderListAgentsResult,
+} from "./provider.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   RelayClientInstallFailedError,
@@ -200,6 +205,9 @@ export const WS_METHODS = {
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
 
+  // Provider methods
+  providersListAgents: "providers.listAgents",
+
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
@@ -250,6 +258,12 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+export const WsProvidersListAgentsRpc = Rpc.make(WS_METHODS.providersListAgents, {
+  payload: ProviderListAgentsInput,
+  success: ProviderListAgentsResult,
+  error: Schema.Union([ProviderListAgentsError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -683,6 +697,7 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
 
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
+  WsProvidersListAgentsRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerUpsertKeybindingRpc,
