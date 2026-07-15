@@ -97,4 +97,10 @@ describe("formatQuotaResetDate", () => {
   it("formats a valid date", () => {
     expect(formatQuotaResetDate("2026-08-01T12:00:00")).toMatch(/Aug/);
   });
+
+  it("treats date-only strings as local dates (no timezone shift)", () => {
+    expect(formatQuotaResetDate("2026-08-01")).toBe(
+      new Date(2026, 7, 1).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    );
+  });
 });

@@ -70,7 +70,13 @@ export function formatQuotaResetDate(resetDate: string | null): string | null {
   if (!resetDate) {
     return null;
   }
-  const parsed = new Date(resetDate);
+  // Copilot returns a calendar date (e.g. "2026-08-01"). `new Date` would
+  // parse that as UTC midnight, which renders as the previous day in
+  // timezones behind UTC — so parse date-only strings as a local date.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(resetDate.trim());
+  const parsed = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(resetDate);
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
