@@ -87,6 +87,8 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { ProviderQuotaMeter } from "./ProviderQuotaMeter";
+import { deriveLatestProviderQuotaSnapshot } from "~/lib/providerQuota";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -333,6 +335,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
+  activeProviderQuota: ReturnType<typeof deriveLatestProviderQuotaSnapshot>;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
@@ -356,6 +359,12 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
+      {props.activeProviderQuota ? (
+        <ProviderQuotaMeter
+          quota={props.activeProviderQuota}
+          providerDisplayName={props.activeThreadProviderDisplayName}
+        />
+      ) : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -878,6 +887,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
+    [activeThreadActivities],
+  );
+  const activeProviderQuota = useMemo(
+    () => deriveLatestProviderQuotaSnapshot(activeThreadActivities ?? []),
     [activeThreadActivities],
   );
   const activeThreadProviderDisplayName = useMemo(() => {
@@ -2568,6 +2581,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}
+                  activeProviderQuota={activeProviderQuota}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}
                   isRunning={phase === "running"}

@@ -534,6 +534,25 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "account.rate-limits.updated": {
+      if (event.payload.rateLimits === undefined || event.payload.rateLimits === null) {
+        return [];
+      }
+
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "provider-quota.updated",
+          summary: "Provider quota updated",
+          payload: event.payload.rateLimits,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "thread.token-usage.updated": {
       const payload = buildContextWindowActivityPayload(event);
       if (!payload) {

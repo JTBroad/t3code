@@ -486,6 +486,37 @@ export function makeCopilotAdapter(
     });
 
     /**
+     * Fetch the account's Copilot quota snapshots (premium requests, chat,
+     * completions) from the CLI and surface them as an
+     * `account.rate-limits.updated` runtime event. Best-effort: quota is
+     * cosmetic, so failures are logged at debug level and swallowed.
+     */
+    const publishQuotaSnapshot = Effect.fn("publishQuotaSnapshot")(function* (
+      context: CopilotSessionContext,
+    ) {
+      if (Ref.getUnsafe(context.stopped)) {
+        return;
+      }
+      const result = yield* Effect.tryPromise(() => context.client.rpc.account.getQuota({}));
+      yield* emit({
+        ...(yield* buildEventBase({ threadId: context.session.threadId })),
+        type: "account.rate-limits.updated",
+        payload: {
+          rateLimits: result.quotaSnapshots,
+        },
+      });
+    });
+
+    const publishQuotaSnapshotBestEffort = (context: CopilotSessionContext) =>
+      publishQuotaSnapshot(context).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logDebug("Copilot quota fetch failed.", { cause: String(cause) }),
+        ),
+        Effect.forkChild,
+        Effect.asVoid,
+      );
+
+    /**
      * Translate one SDK session event into canonical runtime events.
      * Invoked strictly in arrival order via the per-session promise chain.
      */
@@ -805,6 +836,9 @@ export function makeCopilotAdapter(
             messageType: event.type,
             raw: event,
           });
+          // Refresh premium-request quota after each turn; premium model
+          // turns consume quota, so the composer meter stays current.
+          yield* publishQuotaSnapshotBestEffort(context);
           break;
         }
 
@@ -1291,6 +1325,9 @@ export function makeCopilotAdapter(
             providerThreadId: started.sessionId,
           },
         });
+
+        // Seed the quota meter as soon as the session is up.
+        yield* publishQuotaSnapshotBestEffort(context);
 
         return session;
       },
