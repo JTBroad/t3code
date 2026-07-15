@@ -498,11 +498,35 @@ export function makeCopilotAdapter(
         return;
       }
       const result = yield* Effect.tryPromise(() => context.client.rpc.account.getQuota({}));
+      // CLI bug (observed in 1.0.70): getQuota reports `resetDate` as the
+      // quota *snapshot* timestamp (i.e. now), not the entitlement reset
+      // date. The real reset date lives on the auth info's `copilotUser`
+      // (`quota_reset_date`, a calendar date), so fetch it and override.
+      const quotaResetDate = yield* Effect.tryPromise(() =>
+        context.client.rpc.account.getCurrentAuth(),
+      ).pipe(
+        Effect.map((auth) => {
+          const copilotUser = auth.authInfo?.copilotUser;
+          // Prefer the raw calendar date; the _utc variant can be a UTC
+          // midnight timestamp, which renders a day early in western zones.
+          return copilotUser?.quota_reset_date ?? copilotUser?.quota_reset_date_utc;
+        }),
+        Effect.catchCause(() => Effect.succeed(undefined)),
+      );
+      const quotaSnapshots =
+        quotaResetDate === undefined
+          ? result.quotaSnapshots
+          : Object.fromEntries(
+              Object.entries(result.quotaSnapshots).map(([key, snapshot]) => [
+                key,
+                snapshot === undefined ? snapshot : { ...snapshot, resetDate: quotaResetDate },
+              ]),
+            );
       yield* emit({
         ...(yield* buildEventBase({ threadId: context.session.threadId })),
         type: "account.rate-limits.updated",
         payload: {
-          rateLimits: result.quotaSnapshots,
+          rateLimits: quotaSnapshots,
         },
       });
     });
