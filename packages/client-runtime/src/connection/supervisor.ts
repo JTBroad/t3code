@@ -179,6 +179,13 @@ function failureFromExit<A>(
       failure: typedFailure.error,
     };
   }
+  const defect = exit.cause.reasons.find(Cause.isDieReason)?.defect;
+  const defectDetail =
+    defect instanceof Error && defect.message.trim().length > 0
+      ? defect.message.trim()
+      : typeof defect === "string" && defect.trim().length > 0
+        ? defect.trim()
+        : null;
   return {
     _tag: "Failure",
     established,
@@ -186,7 +193,10 @@ function failureFromExit<A>(
     failure: {
       error: new ConnectionTransientError({
         reason: "transport",
-        detail: `${target.label} connection failed unexpectedly.`,
+        detail:
+          defectDetail === null
+            ? `${target.label} connection failed unexpectedly.`
+            : `${target.label} connection failed unexpectedly: ${defectDetail}`,
       }),
       attemptSpan: Option.none(),
     },

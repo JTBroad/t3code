@@ -13,7 +13,6 @@
 import {
   type CopilotSettings,
   type ModelCapabilities,
-  ProviderDriverKind,
   type ServerProviderModel,
 } from "@t3tools/contracts";
 // @effect-diagnostics nodeBuiltinImport:off
@@ -50,7 +49,6 @@ const DEFAULT_COPILOT_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabil
   optionDescriptors: [],
 });
 
-const PROVIDER = ProviderDriverKind.make("copilot");
 const COPILOT_PRESENTATION = {
   displayName: "Copilot",
   badgeLabel: "Early Access",
@@ -103,7 +101,6 @@ export function copilotModelsFromSettings(
 ): ReadonlyArray<ServerProviderModel> {
   return providerModelsFromSettings(
     BUILT_IN_COPILOT_MODELS,
-    PROVIDER,
     copilotSettings.customModels,
     DEFAULT_COPILOT_MODEL_CAPABILITIES,
   );
@@ -152,8 +149,7 @@ const CAPABILITIES_PROBE_TIMEOUT_MS = 30_000;
  * Spawning the native binary sidesteps the host runtime entirely.
  */
 export function resolveBundledCopilotBinaryPath(): string | undefined {
-  const variants =
-    process.platform === "linux" ? ["linux", "linuxmusl"] : [process.platform];
+  const variants = process.platform === "linux" ? ["linux", "linuxmusl"] : [process.platform];
 
   // The platform packages are transitive deps of `@github/copilot-sdk`,
   // so with pnpm's strict layout they are only resolvable from the SDK's
@@ -471,7 +467,6 @@ export const checkCopilotProviderStatus = Effect.fn("checkCopilotProviderStatus"
     capabilities.models.length > 0
       ? providerModelsFromSettings(
           copilotModelsFromModelInfo(capabilities.models),
-          PROVIDER,
           copilotSettings.customModels,
           DEFAULT_COPILOT_MODEL_CAPABILITIES,
         )

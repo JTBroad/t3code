@@ -453,7 +453,7 @@ describe("EnvironmentSupervisor", () => {
         lastFailure: {
           _tag: "ConnectionTransientError",
           reason: "transport",
-          message: "Test environment connection failed unexpectedly.",
+          message: "Test environment connection failed unexpectedly: Native transport defect.",
         },
       });
 
