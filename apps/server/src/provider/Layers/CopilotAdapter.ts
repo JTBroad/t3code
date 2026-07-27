@@ -36,6 +36,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Deferred from "effect/Deferred";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -1546,7 +1547,8 @@ export function makeCopilotAdapter(
       function* (input) {
         const cacheKey = input.cwd ?? "";
         const cached = agentDiscoveryCache.get(cacheKey);
-        if (cached && Date.now() - cached.at < AGENT_DISCOVERY_TTL_MS) {
+        const now = yield* Clock.currentTimeMillis;
+        if (cached && now - cached.at < AGENT_DISCOVERY_TTL_MS) {
           return cached.agents;
         }
 
@@ -1589,7 +1591,10 @@ export function makeCopilotAdapter(
           return [];
         }
 
-        agentDiscoveryCache.set(cacheKey, { at: Date.now(), agents: discovered.value });
+        // Re-read the clock: discovery can take seconds, and the TTL should run
+        // from when the result landed, not from when the lookup started.
+        const cachedAt = yield* Clock.currentTimeMillis;
+        agentDiscoveryCache.set(cacheKey, { at: cachedAt, agents: discovered.value });
         return discovered.value;
       },
     );
