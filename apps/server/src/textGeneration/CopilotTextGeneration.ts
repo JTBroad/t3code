@@ -59,9 +59,12 @@ export const makeCopilotTextGeneration = Effect.fn("makeCopilotTextGeneration")(
     modelSelection: ModelSelection;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
+      // Resolved out here: the options now read host platform/arch from the
+      // Effect context, which the `async` callback below cannot yield in.
+      const clientOptions = yield* makeCopilotClientOptions(copilotSettings, environment);
       const output = yield* Effect.tryPromise(async () => {
         const client = new CopilotClient({
-          ...makeCopilotClientOptions(copilotSettings, environment),
+          ...clientOptions,
           workingDirectory: cwd,
         });
         try {

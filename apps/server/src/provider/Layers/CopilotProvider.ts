@@ -25,6 +25,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
@@ -148,8 +149,10 @@ const CAPABILITIES_PROBE_TIMEOUT_MS = 30_000;
  * the CLI never starts ("too many arguments. Expected 0 arguments").
  * Spawning the native binary sidesteps the host runtime entirely.
  */
-export function resolveBundledCopilotBinaryPath(): string | undefined {
-  const variants = process.platform === "linux" ? ["linux", "linuxmusl"] : [process.platform];
+export const resolveBundledCopilotBinaryPath = Effect.gen(function* () {
+  const platform = yield* HostProcessPlatform;
+  const architecture = yield* HostProcessArchitecture;
+  const variants = platform === "linux" ? ["linux", "linuxmusl"] : [platform];
 
   // The platform packages are transitive deps of `@github/copilot-sdk`,
   // so with pnpm's strict layout they are only resolvable from the SDK's
@@ -163,7 +166,7 @@ export function resolveBundledCopilotBinaryPath(): string | undefined {
   }
 
   for (const variant of variants) {
-    const packageName = `@github/copilot-${variant}-${process.arch}`;
+    const packageName = `@github/copilot-${variant}-${architecture}`;
     try {
       const binary = require.resolve(packageName);
       if (NodeFS.existsSync(binary)) {
@@ -174,7 +177,7 @@ export function resolveBundledCopilotBinaryPath(): string | undefined {
     }
   }
   return undefined;
-}
+});
 
 /**
  * Build `CopilotClientOptions` shared by the probe, the adapter, and text
@@ -182,10 +185,10 @@ export function resolveBundledCopilotBinaryPath(): string | undefined {
  * user-installed CLI via `RuntimeConnection.forStdio`; the default routes
  * at the bundled native binary (see {@link resolveBundledCopilotBinaryPath}).
  */
-export function makeCopilotClientOptions(
+export const makeCopilotClientOptions = Effect.fn("makeCopilotClientOptions")(function* (
   copilotSettings: CopilotSettings,
   environment?: NodeJS.ProcessEnv,
-): ConstructorParameters<typeof CopilotClient>[0] {
+) {
   const env = makeCopilotEnvironment(copilotSettings, environment) as Record<
     string,
     string | undefined
@@ -193,7 +196,7 @@ export function makeCopilotClientOptions(
   const cliPath =
     copilotSettings.binaryPath !== "copilot"
       ? copilotSettings.binaryPath
-      : resolveBundledCopilotBinaryPath();
+      : yield* resolveBundledCopilotBinaryPath;
   return {
     env,
     ...(copilotSettings.homePath.length > 0 ? { baseDirectory: copilotSettings.homePath } : {}),
@@ -202,8 +205,8 @@ export function makeCopilotClientOptions(
     // failures, config parsing, retrieval decisions) on the CLI's stderr,
     // which the SDK pipes through as "[CLI subprocess]" lines.
     logLevel: (env.COPILOT_DEBUG ? "debug" : "none") as "debug" | "none",
-  };
-}
+  } satisfies ConstructorParameters<typeof CopilotClient>[0];
+});
 
 /**
  * SDK-backed capabilities probe: starts a short-lived `CopilotClient`,
@@ -216,7 +219,7 @@ export const probeCopilotCapabilities = (
   environment?: NodeJS.ProcessEnv,
 ): Effect.Effect<CopilotCapabilitiesProbe | undefined> =>
   Effect.gen(function* () {
-    const client = new CopilotClient(makeCopilotClientOptions(copilotSettings, environment));
+    const client = new CopilotClient(yield* makeCopilotClientOptions(copilotSettings, environment));
     return yield* Effect.tryPromise(async () => {
       try {
         await client.start();
