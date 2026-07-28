@@ -105,7 +105,11 @@ import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
@@ -1539,13 +1543,26 @@ export default function SidebarV2() {
   // over a live connection, which makes the config map the sidebar's
   // definition of "connected".
   const connectedEnvironmentIds = useMemo(() => [...serverConfigs.keys()], [serverConfigs]);
+  // "Connected" is not the same as "has told us its threads yet": on a cold
+  // start the environment descriptor lands before the thread snapshot does, so
+  // for a beat every environment looks connected with zero live threads. Pruning
+  // in that window wipes the whole persisted order — the restart bug. Wait for
+  // the snapshots themselves before trusting an absence.
+  const shellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   useEffect(() => {
     // No connected environment means no trustworthy liveness signal at all —
     // during a reconnect every key would look dead. Skipping keeps a transient
     // disconnect from wiping the order.
     if (threadOrder.length === 0 || connectedEnvironmentIds.length === 0) return;
+    if (!shellsBootstrapped) return;
     pruneThreadOrder(liveThreadKeys, connectedEnvironmentIds);
-  }, [connectedEnvironmentIds, liveThreadKeys, pruneThreadOrder, threadOrder.length]);
+  }, [
+    connectedEnvironmentIds,
+    liveThreadKeys,
+    pruneThreadOrder,
+    shellsBootstrapped,
+    threadOrder.length,
+  ]);
 
   // Only the active rows are sortable, so the SortableContext gets exactly
   // their keys — the "Snoozed"/"Settled" header <li>s and the shelf rows are
@@ -1601,12 +1618,20 @@ export default function SidebarV2() {
         ? activeThreadDragIds.filter((key) => selectedThreadKeys.has(key))
         : [activeKey];
 
-      // First drag has no persisted baseline: seed the order from the list as
-      // it is currently rendered so the splice has stable neighbours to land
-      // between. Seeding and moving happen in one reducer call — reading the
-      // store back after a set() in the same handler would still see the old
-      // (empty) order.
-      const currentThreadOrder = threadOrder.length > 0 ? threadOrder : activeThreadDragIds;
+      // `reorderThreads` can only splice keys that are already in the order, so
+      // the baseline has to describe every row on screen — not just the ranked
+      // ones. Unranked threads (every freshly created one, which render at the
+      // top per `orderThreadsByPreferredKeys`) were previously absent here, so
+      // dragging one found nothing to move and the row snapped back. Folding
+      // them in at their rendered position makes any visible row draggable and
+      // reproduces the list exactly as displayed. Seeding and moving happen in
+      // one reducer call — reading the store back after a set() in the same
+      // handler would still see the old order.
+      const rankedKeys = new Set(threadOrder);
+      const currentThreadOrder = [
+        ...activeThreadDragIds.filter((key) => !rankedKeys.has(key)),
+        ...threadOrder,
+      ];
       reorderThreads(currentThreadOrder, draggedKeys, [overKey]);
       suppressThreadClickAfterDragRef.current = true;
     },
