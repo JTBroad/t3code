@@ -21,6 +21,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
@@ -430,6 +431,15 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
   );
 });
 
+// Discovery stats every PATHEXT candidate in every PATH entry for all 21 known
+// editors, and all but one are normally absent — a full miss costs the whole
+// PATH sweep. That is thousands of stat calls, and it ran on every server-config
+// request, where it competes with everything else the host is doing and can
+// overrun the caller's discovery timeout (which degrades to "no editors
+// installed"). Editors are not installed mid-session often, so hold the roster
+// briefly instead of recomputing it per request.
+const AVAILABLE_EDITORS_CACHE_TTL = Duration.minutes(5);
+
 export const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -443,8 +453,13 @@ export const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
     );
 
+  const cachedAvailableEditors = yield* Effect.cachedWithTTL(
+    provideCommandResolutionServices(resolveAvailableEditors()),
+    AVAILABLE_EDITORS_CACHE_TTL,
+  );
+
   return ExternalLauncher.of({
-    resolveAvailableEditors: () => provideCommandResolutionServices(resolveAvailableEditors()),
+    resolveAvailableEditors: () => cachedAvailableEditors,
     launchBrowser: (target) =>
       launchBrowser(target).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),

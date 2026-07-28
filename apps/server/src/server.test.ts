@@ -3810,11 +3810,27 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       ).pipe(Effect.forkChild);
 
-      yield* TestClock.adjust(Duration.seconds(5));
+      yield* TestClock.adjust(Duration.seconds(15));
 
       const availableEditors = yield* Fiber.join(responseFiber);
       yield* Deferred.await(discoveryInterrupted);
       assert.deepEqual(availableEditors, []);
+    }),
+  );
+
+  it.effect("keeps editor discovery pending until the timeout elapses", () =>
+    Effect.gen(function* () {
+      const responseFiber = yield* resolveAvailableEditorsForConfig(Effect.never).pipe(
+        Effect.forkChild,
+      );
+
+      // Just short of the budget: a slow-but-live host must still get its real
+      // roster rather than being cut off early and told it has no editors.
+      yield* TestClock.adjust(Duration.seconds(14));
+      assert.equal(responseFiber.pollUnsafe(), undefined);
+
+      yield* TestClock.adjust(Duration.seconds(1));
+      assert.deepEqual(yield* Fiber.join(responseFiber), []);
     }),
   );
 

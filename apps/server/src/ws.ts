@@ -125,14 +125,29 @@ import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
+const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(15);
 
+// Timing out yields an empty roster, which the client renders as "No installed
+// editors found" — indistinguishable from a machine with no editors at all.
+// Log it, otherwise a host slow enough to overrun the budget silently loses
+// every "Open in ..." affordance with nothing to diagnose from.
 export const resolveAvailableEditorsForConfig = <A, E, R>(
   discovery: Effect.Effect<ReadonlyArray<A>, E, R>,
 ) =>
   discovery.pipe(
     Effect.timeoutOption(EDITOR_DISCOVERY_TIMEOUT),
-    Effect.map(Option.getOrElse(() => [])),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.as(
+            Effect.logWarning("Editor discovery timed out; reporting no available editors", {
+              timeoutMs: Duration.toMillis(EDITOR_DISCOVERY_TIMEOUT),
+            }),
+            [] as ReadonlyArray<A>,
+          ),
+        onSome: (editors: ReadonlyArray<A>) => Effect.succeed(editors),
+      }),
+    ),
   );
 
 function unexpectedCompatibilityError(error: never): never {

@@ -48,9 +48,18 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
-const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
+// Background status fetches are network-bound, so the budget has to cover a
+// real round trip rather than a local git invocation. At 5s, remotes that
+// simply answer slowly (cold TCP, credential helper round trip, large ref
+// advertisements) could never finish — they timed out on every poll and logged
+// forever while the underlying fetch was succeeding in 15-25s.
+const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(45);
 
-const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
+// Must exceed STATUS_UPSTREAM_REFRESH_INTERVAL: a remote that just failed is
+// the *last* one worth hammering. Previously this sat below the success
+// interval, so failing repositories were retried three times as often as
+// healthy ones — the opposite of the backoff the name promises.
+const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(60);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
 const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   GCM_INTERACTIVE: "never",
