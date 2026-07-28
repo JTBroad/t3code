@@ -24,6 +24,7 @@ export interface PersistedUiState {
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
+  threadOrder?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   threadChangedFilesExpansionVersion?: typeof THREAD_CHANGED_FILES_EXPANSION_VERSION;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
@@ -39,15 +40,24 @@ export interface UiThreadState {
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
 
+// Manual sidebar-v2 thread order. Entries are scoped thread keys
+// ("<environmentId>:<threadId>") because thread ids are only unique per
+// environment and the sidebar renders several environments at once.
+export interface UiThreadOrderState {
+  threadOrder: string[];
+}
+
 export interface UiEndpointState {
   defaultAdvertisedEndpointKey: string | null;
 }
 
-export interface UiState extends UiProjectState, UiThreadState, UiEndpointState {}
+export interface UiState
+  extends UiProjectState, UiThreadState, UiThreadOrderState, UiEndpointState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  threadOrder: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -125,6 +135,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   return {
     projectExpandedById,
     projectOrder,
+    threadOrder: sanitizeStringArray(parsed.threadOrder),
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
@@ -203,6 +214,7 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
+        threadOrder: state.threadOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
@@ -381,6 +393,91 @@ export function reorderProjects(
   };
 }
 
+export function reorderThreads(
+  state: UiState,
+  currentThreadOrder: readonly string[],
+  draggedThreadKeys: readonly string[],
+  targetThreadKeys: readonly string[],
+): UiState {
+  if (draggedThreadKeys.length === 0) {
+    return state;
+  }
+  const draggedSet = new Set(draggedThreadKeys);
+  const targetSet = new Set(targetThreadKeys);
+  if (draggedThreadKeys.every((key) => targetSet.has(key))) {
+    return state;
+  }
+
+  const originalTargetIndex = currentThreadOrder.findIndex((key) => targetSet.has(key));
+  if (originalTargetIndex < 0) {
+    return state;
+  }
+
+  const threadOrder = [...currentThreadOrder];
+
+  const removed: string[] = [];
+  let draggedBeforeTarget = 0;
+  for (let i = threadOrder.length - 1; i >= 0; i--) {
+    if (draggedSet.has(threadOrder[i]!)) {
+      removed.unshift(threadOrder.splice(i, 1)[0]!);
+      if (i < originalTargetIndex) {
+        draggedBeforeTarget++;
+      }
+    }
+  }
+  if (removed.length === 0) {
+    return state;
+  }
+
+  // Removing entries above the target shifts it up; compensate so a multi-select
+  // drag lands where the pointer is instead of overshooting.
+  const insertIndex = originalTargetIndex - Math.max(0, draggedBeforeTarget - 1);
+  threadOrder.splice(insertIndex, 0, ...removed);
+  return {
+    ...state,
+    threadOrder,
+  };
+}
+
+export function pruneThreadOrder(
+  state: UiState,
+  liveThreadKeys: readonly string[],
+  prunableEnvironmentIds: readonly string[],
+): UiState {
+  const liveSet = new Set(liveThreadKeys);
+  const prunableSet = new Set(prunableEnvironmentIds);
+  // Only drop keys whose environment is currently connected: an environment that
+  // is offline simply has no live threads, and pruning those would silently wipe
+  // the user's order on every reconnect.
+  const threadOrder = state.threadOrder.filter((key) => {
+    if (liveSet.has(key)) {
+      return true;
+    }
+    const separatorIndex = key.indexOf(":");
+    if (separatorIndex < 0) {
+      return true;
+    }
+    return !prunableSet.has(key.slice(0, separatorIndex));
+  });
+  if (threadOrder.length === state.threadOrder.length) {
+    return state;
+  }
+  return {
+    ...state,
+    threadOrder,
+  };
+}
+
+export function clearThreadOrder(state: UiState): UiState {
+  if (state.threadOrder.length === 0) {
+    return state;
+  }
+  return {
+    ...state,
+    threadOrder: [],
+  };
+}
+
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
@@ -392,6 +489,16 @@ interface UiStateStore extends UiState {
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
   ) => void;
+  reorderThreads: (
+    currentThreadOrder: readonly string[],
+    draggedThreadKeys: readonly string[],
+    targetThreadKeys: readonly string[],
+  ) => void;
+  pruneThreadOrder: (
+    liveThreadKeys: readonly string[],
+    prunableEnvironmentIds: readonly string[],
+  ) => void;
+  clearThreadOrder: () => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -410,6 +517,11 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),
     ),
+  reorderThreads: (currentThreadOrder, draggedThreadKeys, targetThreadKeys) =>
+    set((state) => reorderThreads(state, currentThreadOrder, draggedThreadKeys, targetThreadKeys)),
+  pruneThreadOrder: (liveThreadKeys, prunableEnvironmentIds) =>
+    set((state) => pruneThreadOrder(state, liveThreadKeys, prunableEnvironmentIds)),
+  clearThreadOrder: () => set((state) => clearThreadOrder(state)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
