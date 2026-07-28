@@ -630,6 +630,80 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.clear": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // A deleted thread has no projection left to empty, and clearing one
+      // would resurrect nothing while still firing the reactor's provider
+      // teardown against a dead binding.
+      if (thread.deletedAt !== null) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} is deleted and cannot be cleared`,
+          }),
+        );
+      }
+      // Work in flight is refused rather than interrupted: clearing mid-turn
+      // races the adapter writing turn results into a projection that no
+      // longer has a turn to attach them to. The three checks below are the
+      // same three shapes turn-start-adjacent commands guard on, because "in
+      // flight" is stored in three different places.
+      //
+      // 1. A live session — the turn the adapter is actively streaming.
+      if (thread.session?.status === "starting" || thread.session?.status === "running") {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} has an active session and cannot be cleared`,
+          }),
+        );
+      }
+      // 2. An open approval / user-input request — the turn is parked waiting
+      //    on the user, so the session may read idle while a turn is still
+      //    outstanding on the provider side.
+      if (hasOpenBlockingRequest(thread)) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} has a pending approval or user-input request and cannot be cleared`,
+          }),
+        );
+      }
+      const occurredAt = yield* nowIso;
+      // 3. A queued turn start — a user message no turn has adopted yet, which
+      //    has neither a session nor a pending flag to show for it.
+      if (threadHasQueuedTurnStart(thread, occurredAt)) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} has a queued turn start and cannot be cleared`,
+          }),
+        );
+      }
+      // Idempotent by re-emission (see thread.settle): clearing an already
+      // empty thread folds to the same empty projection, and the engine
+      // rejects zero-event commands, so a double-click must still emit. Unlike
+      // settle there is no prior timestamp worth preserving — an empty thread
+      // has nothing to rewind — so the clear always stamps the command time.
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.cleared",
+        payload: {
+          threadId: command.threadId,
+          clearedAt: occurredAt,
+        },
+      };
+    }
+
     case "thread.meta.update": {
       const thread = yield* requireThread({
         readModel,

@@ -4,6 +4,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { createAtomCommandScheduler, createEnvironmentCommand } from "./runtime.ts";
 import {
   type ArchiveThreadInput,
+  type ClearThreadInput,
   type CreateThreadInput,
   type DeleteThreadInput,
   type InterruptThreadTurnInput,
@@ -21,6 +22,7 @@ import {
   type UnsnoozeThreadInput,
   type UpdateThreadMetadataInput,
   archiveThread,
+  clearThread,
   createThread,
   deleteThread,
   interruptThreadTurn,
@@ -42,6 +44,7 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
 
 export type {
   ArchiveThreadInput,
+  ClearThreadInput,
   CreateThreadInput,
   DeleteThreadInput,
   InterruptThreadTurnInput,
@@ -97,6 +100,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     settle: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:settle",
       execute: (input: SettleThreadInput) => settleThread(input),
+      scheduler,
+      concurrency,
+    }),
+    clear: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:clear",
+      execute: (input: ClearThreadInput) => clearThread(input),
       scheduler,
       concurrency,
     }),

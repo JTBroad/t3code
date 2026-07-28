@@ -503,6 +503,25 @@ export function applyThreadDetailEvent(
       };
     }
 
+    // ── Clear ───────────────────────────────────────────────────────
+    case "thread.cleared": {
+      // Same shape as `thread.reverted`, but nothing is retained: the whole
+      // conversation goes. Every other field stays put — title, model, modes,
+      // branch, worktree, session, settle state.
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          messages: [],
+          activities: [],
+          proposedPlans: [],
+          checkpoints: [],
+          latestTurn: null,
+          updatedAt: event.occurredAt,
+        },
+      };
+    }
+
     // ── Activities ──────────────────────────────────────────────────
     case "thread.activity-appended": {
       const activities = pipe(

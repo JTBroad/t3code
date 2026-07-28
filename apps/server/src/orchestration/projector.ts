@@ -23,6 +23,7 @@ import {
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadSettledPayload,
+  ThreadClearedPayload,
   ThreadSnoozedPayload,
   ThreadUnarchivedPayload,
   ThreadUnsettledPayload,
@@ -712,6 +713,38 @@ export function projectEvent(
               proposedPlans,
               activities,
               latestTurn,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.cleared":
+      return decodeForEvent(ThreadClearedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+
+          // Same shape as `thread.reverted`, but nothing is retained: the whole
+          // conversation goes. Every other field stays put — title, model,
+          // modes, branch, worktree, session, and deliberately
+          // `settledOverride` / `settledAt`. Clearing is not activity, so the
+          // existing activity-based unsettle rules still decide settle state on
+          // the next turn.
+          //
+          // This is only half the clear: it empties what the UI shows. The
+          // provider resume cursor — what the agent actually remembers — is
+          // dropped by `ThreadClearReactor`.
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              messages: [],
+              activities: [],
+              proposedPlans: [],
+              checkpoints: [],
+              latestTurn: null,
               updatedAt: event.occurredAt,
             }),
           };

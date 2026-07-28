@@ -23,7 +23,10 @@ export function deriveOrchestrationBatchEffects(
   for (const event of events) {
     switch (event.type) {
       case "thread.turn-diff-completed":
-      case "thread.reverted": {
+      case "thread.reverted":
+      // A clear drops every turn and its diffs, so cached provider/diff state
+      // for this thread is stale for the same reason a revert makes it stale.
+      case "thread.cleared": {
         needsProviderInvalidation = true;
         break;
       }

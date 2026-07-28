@@ -278,6 +278,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
       | "thread.reverted"
+      | "thread.cleared"
       | "thread.session-set";
   }
 > {
@@ -287,6 +288,10 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
+    // A clear empties the open thread's timeline, so subscribers must see it
+    // for the same reason they see a revert: the detail view is folded from
+    // this stream, and an event that never arrives can never be applied.
+    event.type === "thread.cleared" ||
     event.type === "thread.session-set"
   );
 }
