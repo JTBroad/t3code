@@ -16,6 +16,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   DEFAULT_SERVER_SETTINGS,
+  defaultInstanceIdForDriver,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerSettings,
@@ -34,6 +35,7 @@ import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from ".
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
+import { BUILT_IN_DRIVERS } from "../builtInDrivers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
 import {
   haveProvidersChanged,
@@ -1758,13 +1760,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 (provider) => provider.instanceId === ProviderInstanceId.make("cursor"),
               );
 
-              assert.deepStrictEqual(providers.map((provider) => provider.instanceId).toSorted(), [
-                "claudeAgent",
-                "codex",
-                "cursor",
-                "grok",
-                "opencode",
-              ]);
+              // Derived from BUILT_IN_DRIVERS rather than hardcoded: a disabled
+              // provider is still registered, so the registry should surface
+              // every built-in driver. Adding a driver must not break this test.
+              assert.deepStrictEqual(
+                providers.map((provider) => provider.instanceId).toSorted(),
+                BUILT_IN_DRIVERS.map((driver) =>
+                  defaultInstanceIdForDriver(driver.driverKind),
+                ).toSorted(),
+              );
               assert.strictEqual(cursorProvider?.enabled, false);
               assert.strictEqual(cursorProvider?.status, "disabled");
               assert.strictEqual(
