@@ -284,6 +284,46 @@ export function orderItemsByPreferredIds<TItem, TId>(input: {
   return [...ordered, ...remaining];
 }
 
+// Threads order the opposite way from projects: unknown items come *first*, not
+// last. A thread the user has never dragged is almost always a brand-new one,
+// and a new thread has to surface at the top of the active list where it is
+// looked for — burying it under every manually-placed row would make creating a
+// thread feel like it did nothing. Projects keep the unknown-last behavior of
+// `orderItemsByPreferredIds`, so the two helpers stay separate.
+export function orderThreadsByPreferredKeys<TItem>(input: {
+  items: readonly TItem[];
+  preferredKeys: readonly string[];
+  getKey: (item: TItem) => string;
+}): TItem[] {
+  const { getKey, items, preferredKeys } = input;
+  if (preferredKeys.length === 0) {
+    return [...items];
+  }
+
+  const indexesByKey = new Map<string, number[]>();
+  for (const [index, item] of items.entries()) {
+    const key = getKey(item);
+    const indexes = indexesByKey.get(key);
+    if (indexes) {
+      indexes.push(index);
+    } else {
+      indexesByKey.set(key, [index]);
+    }
+  }
+
+  const emittedIndexes = new Set<number>();
+  const preferred = preferredKeys.flatMap((key) => {
+    const index = indexesByKey.get(key)?.find((candidate) => !emittedIndexes.has(candidate));
+    if (index === undefined) {
+      return [];
+    }
+    emittedIndexes.add(index);
+    return [items[index]!];
+  });
+  const unknown = items.filter((_, index) => !emittedIndexes.has(index));
+  return [...unknown, ...preferred];
+}
+
 export function getVisibleSidebarThreadIds<TThreadId>(
   renderedProjects: readonly {
     shouldShowThreadPanel?: boolean;
