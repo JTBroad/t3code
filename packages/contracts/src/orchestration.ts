@@ -591,6 +591,17 @@ const ThreadUnsettleCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+// Empties the thread in place: the transcript goes, but the thread's identity
+// (title, model, branch, worktree) and the user's working tree both survive.
+// createdAt is carried so the emitted event can stamp clearedAt from the
+// decider's occurredAt rather than trusting a client clock.
+const ThreadClearCommand = Schema.Struct({
+  type: Schema.Literal("thread.clear"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 const ThreadSnoozeCommand = Schema.Struct({
   type: Schema.Literal("thread.snooze"),
   commandId: CommandId,
@@ -756,6 +767,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnarchiveCommand,
   ThreadSettleCommand,
   ThreadUnsettleCommand,
+  ThreadClearCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
   ThreadMetaUpdateCommand,
@@ -781,6 +793,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnarchiveCommand,
   ThreadSettleCommand,
   ThreadUnsettleCommand,
+  ThreadClearCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
   ThreadMetaUpdateCommand,
@@ -887,6 +900,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.unarchived",
   "thread.settled",
   "thread.unsettled",
+  "thread.cleared",
   "thread.snoozed",
   "thread.unsnoozed",
   "thread.meta-updated",
@@ -978,6 +992,14 @@ export const ThreadUnsettledPayload = Schema.Struct({
   threadId: ThreadId,
   reason: Schema.Literals(["user", "activity"]),
   updatedAt: IsoDateTime,
+});
+
+// No updatedAt: the projector stamps the thread from the event's occurredAt,
+// and clearing carries no settle/unsettle consequence of its own — clearing is
+// not activity, so the existing activity-based rules decide that on the next turn.
+export const ThreadClearedPayload = Schema.Struct({
+  threadId: ThreadId,
+  clearedAt: IsoDateTime,
 });
 
 export const ThreadSnoozedPayload = Schema.Struct({
@@ -1173,6 +1195,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.unsettled"),
     payload: ThreadUnsettledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.cleared"),
+    payload: ThreadClearedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -1084,7 +1084,7 @@ export default function SidebarV2() {
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThread } =
+  const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThread, clearThread } =
     useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -2020,6 +2020,36 @@ export default function SidebarV2() {
     [attemptUnsnooze, planForwardNavigation, snoozeThread],
   );
 
+  // One clear per thread at a time — same double-dispatch guard as settle.
+  // Clearing stays on the thread: the row keeps its place and its title, only
+  // the conversation goes, so there is nothing to navigate away from.
+  const clearingThreadKeysRef = useRef(new Set<string>());
+  const attemptClear = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const threadKey = scopedThreadKey(threadRef);
+        if (clearingThreadKeysRef.current.has(threadKey)) return;
+        clearingThreadKeysRef.current.add(threadKey);
+        try {
+          const result = await clearThread(threadRef);
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to clear thread",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+        } finally {
+          clearingThreadKeysRef.current.delete(threadKey);
+        }
+      })();
+    },
+    [clearThread],
+  );
+
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const handleMultiSelectContextMenu = useCallback(
     async (position: { x: number; y: number }) => {
@@ -2183,6 +2213,12 @@ export default function SidebarV2() {
           true;
         const supportsSnooze =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
+        // Clear is refused server-side while a turn is in flight, so don't
+        // offer a command that is already doomed.
+        const supportsClear =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadClear === true &&
+          thread.session?.status !== "running" &&
+          thread.session?.status !== "starting";
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         // Presets resolve at menu-open time (same as the popover).
@@ -2222,6 +2258,7 @@ export default function SidebarV2() {
                 : []),
               { id: "rename", label: "Rename thread" },
               { id: "mark-unread", label: "Mark unread" },
+              ...(supportsClear ? [{ id: "clear", label: "Clear thread" }] : []),
               { id: "delete", label: "Delete", destructive: true, icon: "trash" },
             ],
             position,
@@ -2274,6 +2311,22 @@ export default function SidebarV2() {
           case "mark-unread":
             markThreadUnread(threadKey, thread.latestTurn?.completedAt);
             return;
+          case "clear": {
+            // Always confirm: unlike snooze there is no undo — the transcript
+            // is gone from the projection and the provider session id is
+            // unrecoverable — so this never rides on `confirmThreadDelete`.
+            const confirmed = await settlePromise(() =>
+              api.dialogs.confirm(
+                [
+                  "Clear this thread?",
+                  "The conversation and the agent's memory of it are removed. Your file changes are kept.",
+                ].join("\n"),
+              ),
+            );
+            if (confirmed._tag === "Failure" || !confirmed.value) return;
+            attemptClear(threadRef);
+            return;
+          }
           case "delete": {
             if (confirmThreadDelete) {
               const confirmed = await settlePromise(() =>
@@ -2306,6 +2359,7 @@ export default function SidebarV2() {
       })();
     },
     [
+      attemptClear,
       attemptSettle,
       attemptSnooze,
       attemptUnsettle,

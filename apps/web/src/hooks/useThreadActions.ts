@@ -108,6 +108,9 @@ export function useThreadActions() {
   const settleThreadMutation = useAtomCommand(threadEnvironment.settle, {
     reportFailure: false,
   });
+  const clearThreadMutation = useAtomCommand(threadEnvironment.clear, {
+    reportFailure: false,
+  });
   const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -450,6 +453,19 @@ export function useThreadActions() {
     [resolveThreadTarget, settleThreadMutation],
   );
 
+  const clearThread = useCallback(
+    async (target: ScopedThreadRef) => {
+      // `createdAt` is filled in by the client-runtime operation, so the
+      // caller only supplies the thread. Capability and in-flight gating live
+      // at the call site — the decider refuses running threads regardless.
+      return clearThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId },
+      });
+    },
+    [clearThreadMutation],
+  );
+
   const unsettleThread = useCallback(
     async (target: ScopedThreadRef) => {
       if (!readEnvironmentSupportsSettlement(target.environmentId)) {
@@ -565,9 +581,11 @@ export function useThreadActions() {
       unsettleThread,
       snoozeThread,
       unsnoozeThread,
+      clearThread,
     }),
     [
       archiveThread,
+      clearThread,
       confirmAndDeleteThread,
       deleteThread,
       settleThread,

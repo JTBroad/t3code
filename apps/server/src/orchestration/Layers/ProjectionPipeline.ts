@@ -870,6 +870,27 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.cleared": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          // Same shape as `thread.reverted`, but nothing is retained, so there
+          // is no surviving turn to point at. Every other meta field stays put —
+          // title, model, modes, branch, worktree, and deliberately
+          // `settledOverride` / `settledAt`.
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: null,
+            updatedAt: event.occurredAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
         default:
           return;
       }
@@ -949,6 +970,16 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.cleared": {
+          // Nothing is retained, so there is no partial rewrite to do — the
+          // whole transcript goes. Attachment files on disk are deliberately
+          // left alone; clearing only empties the conversation.
+          yield* projectionThreadMessageRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+        }
+
         default:
           return;
       }
@@ -997,6 +1028,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* Effect.forEach(keptRows, projectionThreadProposedPlanRepository.upsert, {
             concurrency: 1,
           }).pipe(Effect.asVoid);
+          return;
+        }
+
+        case "thread.cleared": {
+          // Nothing is retained, so every proposed plan for the thread goes.
+          yield* projectionThreadProposedPlanRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
           return;
         }
 
@@ -1049,6 +1088,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* Effect.forEach(keptRows, projectionThreadActivityRepository.upsert, {
             concurrency: 1,
           }).pipe(Effect.asVoid);
+          return;
+        }
+
+        case "thread.cleared": {
+          // Nothing is retained, so every activity for the thread goes.
+          yield* projectionThreadActivityRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
           return;
         }
 
@@ -1402,6 +1449,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                   }),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);
+          return;
+        }
+
+        case "thread.cleared": {
+          // Nothing is retained, so every turn for the thread goes — and with
+          // them the checkpoint columns those rows carry.
+          yield* projectionTurnRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
           return;
         }
 
