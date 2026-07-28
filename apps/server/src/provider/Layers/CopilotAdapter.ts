@@ -1007,7 +1007,10 @@ export function makeCopilotAdapter(
           NodePath.join(directory, ".claude", "skills"),
         ].filter((candidate) => NodeFS.existsSync(candidate));
 
-        const baseClientOptions = makeCopilotClientOptions(copilotSettings, options?.environment);
+        const baseClientOptions = yield* makeCopilotClientOptions(
+          copilotSettings,
+          options?.environment,
+        );
         const client = new CopilotClient({
           ...baseClientOptions,
           ...(projectSkillDirectories.length > 0
@@ -1559,9 +1562,11 @@ export function makeCopilotAdapter(
             !Ref.getUnsafe(context.stopped) &&
             (input.cwd === undefined || context.session.cwd === input.cwd),
         );
+        // `yield*` on the right of `??` still short-circuits, so a live
+        // client is reused without resolving the bundled binary path.
         const client =
           liveContext?.client ??
-          new CopilotClient(makeCopilotClientOptions(copilotSettings, options?.environment));
+          new CopilotClient(yield* makeCopilotClientOptions(copilotSettings, options?.environment));
         const ephemeral = liveContext === undefined;
 
         const discovered = yield* Effect.tryPromise(async () => {
