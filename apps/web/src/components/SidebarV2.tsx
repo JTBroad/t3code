@@ -923,7 +923,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]",
         sortable?.className,
       )}
-      {...sortable?.listeners}
+      // The whole card is the drag handle, and the inline rename <input> is a
+      // descendant of it. dnd-kit's PointerSensor activates on any pointerdown
+      // that isn't a right-click, with no exemption for form fields, so while
+      // the input is open a 6px press-and-move to select text would start a row
+      // drag instead — and the resulting blur would commit the half-typed
+      // title. Dropping the listeners for the duration of the edit leaves the
+      // row a valid drop target while making it undraggable.
+      {...(isRenaming ? {} : sortable?.listeners)}
     >
       <Tooltip>
         <TooltipTrigger
@@ -1449,7 +1456,7 @@ export default function SidebarV2() {
   // merging, no optimistic holds. Archived threads remain hidden here —
   // archive keeps its original "remove from sidebar" meaning.
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
-  const { activeThreads, snoozedThreads, settledThreads, snoozeNow } = useMemo(() => {
+  const threadSections = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
@@ -1457,16 +1464,19 @@ export default function SidebarV2() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
-      (thread) =>
-        thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
-    for (const thread of visible) {
+    // The set the manual drag order is pruned against. Built from every
+    // unarchived thread rather than the scoped rows below: a thread in a
+    // project the user has scoped out is still active, and pruning against
+    // what happens to be rendered would silently wipe its placement.
+    const orderableThreadKeys: string[] = [];
+    for (const thread of threads) {
+      if (thread.archivedAt !== null) continue;
+      const inScope =
+        scopedProjectKeys === null ||
+        scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`);
       // Threads on servers without the settlement capability (old server,
       // or descriptor not loaded yet) never classify as settled: the user
       // could neither un-settle nor pin them, so auto-settling them would
@@ -1481,14 +1491,18 @@ export default function SidebarV2() {
       // belongs to the shelf even if it would also auto-settle (the shelf's
       // wake time is a stronger statement about when it matters again).
       if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
-        snoozed.push(thread);
+        if (inScope) snoozed.push(thread);
       } else if (
         supportsSettlement &&
         effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
       ) {
-        settled.push(thread);
+        if (inScope) settled.push(thread);
       } else {
-        active.push(thread);
+        // Only active rows are drag-orderable, so only they hold a rank.
+        // Settling or snoozing drops it, and the thread returns to its date
+        // position on the way back rather than to a slot set long ago.
+        orderableThreadKeys.push(threadKey);
+        if (inScope) active.push(thread);
       }
     }
     return {
@@ -1501,6 +1515,7 @@ export default function SidebarV2() {
       ),
       settledThreads: sortSettledThreadsForSidebarV2(settled),
       snoozeNow: preciseNow,
+      orderableThreadKeys,
     };
   }, [
     autoSettleAfterDays,
@@ -1511,6 +1526,8 @@ export default function SidebarV2() {
     snoozeWakeTick,
     threads,
   ]);
+  const { activeThreads, snoozedThreads, settledThreads, snoozeNow, orderableThreadKeys } =
+    threadSections;
 
   // The manual drag order layers on top of the default sort rather than
   // replacing it: unranked threads (anything never dragged, including every
@@ -1526,19 +1543,14 @@ export default function SidebarV2() {
     [activeThreads, threadOrder],
   );
 
-  // Liveness is read off the raw shell stream, not off what is on screen:
-  // the settled tail is paged, the snooze shelf collapses, and project
-  // scoping hides whole environments — every one of those threads is still
-  // alive, and pruning against the rendered rows would quietly discard the
-  // user's placement for them. Archived threads are the one real removal, so
-  // they drop out here just like they do from the sections above.
-  const liveThreadKeys = useMemo(
-    () =>
-      threads
-        .filter((thread) => thread.archivedAt === null)
-        .map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-    [threads],
-  );
+  // Ranks are pruned against the *active* set, not merely the unarchived one.
+  // Only active rows can be dragged, so a rank on a settled or snoozed thread
+  // describes a position it cannot currently occupy; keeping it meant an
+  // un-settled thread reappeared in a slot the user set long ago instead of at
+  // its date position, which is where a thread you just brought back is looked
+  // for. `orderableThreadKeys` is still computed off the raw shell stream and
+  // ignores project scoping — see the classification loop above, where pruning
+  // against the rendered rows would discard placement for scoped-out projects.
   // A server config only exists once that environment's descriptor has come
   // over a live connection, which makes the config map the sidebar's
   // definition of "connected".
@@ -1555,10 +1567,10 @@ export default function SidebarV2() {
     // disconnect from wiping the order.
     if (threadOrder.length === 0 || connectedEnvironmentIds.length === 0) return;
     if (!shellsBootstrapped) return;
-    pruneThreadOrder(liveThreadKeys, connectedEnvironmentIds);
+    pruneThreadOrder(orderableThreadKeys, connectedEnvironmentIds);
   }, [
     connectedEnvironmentIds,
-    liveThreadKeys,
+    orderableThreadKeys,
     pruneThreadOrder,
     shellsBootstrapped,
     threadOrder.length,
