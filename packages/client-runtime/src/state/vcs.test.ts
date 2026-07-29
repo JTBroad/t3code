@@ -155,13 +155,13 @@ describe("cached VCS refs", () => {
         }
         expect(yield* Ref.get(calls)).toBe(1);
 
-        yield* TestClock.adjust("5 seconds");
+        yield* TestClock.adjust("60 seconds");
         expect(Option.getOrThrow(yield* Fiber.join(fiber))).toEqual(LIVE_REFS);
       }).pipe(Effect.provide(TestClock.layer())),
     ),
   );
 
-  it.effect("revalidates connected refs every five seconds", () =>
+  it.effect("revalidates connected refs on the revalidation interval", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const calls = yield* Ref.make(0);
@@ -193,7 +193,13 @@ describe("cached VCS refs", () => {
         }
         expect(yield* Ref.get(calls)).toBe(1);
 
-        yield* TestClock.adjust("5 seconds");
+        // Enumerating refs is expensive on large repositories, so the cadence
+        // is load-bearing: hold short of the interval and confirm nothing has
+        // re-fired yet.
+        yield* TestClock.adjust("59 seconds");
+        expect(yield* Ref.get(calls)).toBe(1);
+
+        yield* TestClock.adjust("1 second");
         expect(Array.from(yield* Fiber.join(fiber))).toEqual([CACHED_REFS, LIVE_REFS]);
       }).pipe(Effect.provide(TestClock.layer())),
     ),

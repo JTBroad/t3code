@@ -23,7 +23,17 @@ import { followStreamInEnvironment } from "./runtime.ts";
 import { vcsCommandConcurrency, vcsCommandScheduler } from "./vcsCommandScheduler.ts";
 
 const OFFLINE_BRANCH_LIST_LIMIT = 100;
-const VCS_REFS_REVALIDATE_INTERVAL = "5 seconds";
+// One revalidation is six git subprocesses, and the two that enumerate refs
+// (`branch --remotes`, `for-each-ref refs/heads refs/remotes`) read every ref in
+// the repository -- the caller's `limit` is applied afterwards in JS, so a repo
+// with thousands of remote-tracking branches pays full cost to render a page of
+// 100. On such repos a single pass measures in seconds, and one atom is mounted
+// per environment/cwd/query, so a 5s cadence kept several repositories' worth of
+// git processes running continuously and starved everything else on the host.
+// Refs only change on fetch or branch operations, not continuously, so a minute
+// is ample. Note `Stream.tick` is pull-based: this delay starts after each
+// refresh completes, making the true period (refresh duration + interval).
+const VCS_REFS_REVALIDATE_INTERVAL = "60 seconds";
 
 function canUseVcsRefsCache(input: VcsListRefsInput): boolean {
   return (
