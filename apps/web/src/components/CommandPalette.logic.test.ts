@@ -4,6 +4,7 @@ import type { Thread } from "../types";
 import {
   buildBrowseGroups,
   buildThreadActionItems,
+  describeConsolidationOutcome,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
   reduceCommandPaletteUiState,
@@ -325,5 +326,56 @@ describe("buildBrowseGroups", () => {
     finishNavigation?.();
     await action;
     expect(actionSettled).toBe(true);
+  });
+});
+
+describe("describeConsolidationOutcome", () => {
+  it("reports counts when notes were promoted", () => {
+    const toast = describeConsolidationOutcome({
+      kind: "completed",
+      promoted: 3,
+      entriesRead: 7,
+    });
+
+    expect(toast.variant).toBe("success");
+    expect(toast.message).toBe("Promoted 3 notes from 7 entries.");
+  });
+
+  it("singularises counts of one", () => {
+    const toast = describeConsolidationOutcome({
+      kind: "completed",
+      promoted: 1,
+      entriesRead: 1,
+    });
+
+    expect(toast.message).toBe("Promoted 1 note from 1 entry.");
+  });
+
+  it("does not claim success when a completed run promoted nothing", () => {
+    const toast = describeConsolidationOutcome({
+      kind: "completed",
+      promoted: 0,
+      entriesRead: 4,
+    });
+
+    expect(toast.variant).toBe("info");
+    expect(toast.message).toBe("Reviewed 4 entries, nothing new to promote.");
+  });
+
+  it("treats an in-flight run as information, never an error", () => {
+    // Pressing the button twice is the normal way to reach this. Reporting it
+    // as a failure teaches people the feature is broken when it worked.
+    const toast = describeConsolidationOutcome({ kind: "already-running" });
+
+    expect(toast.variant).toBe("info");
+    expect(toast.message).toBe("Consolidation is already running.");
+  });
+
+  it("distinguishes nothing-to-do from already-running", () => {
+    const nothing = describeConsolidationOutcome({ kind: "nothing-to-do" });
+    const running = describeConsolidationOutcome({ kind: "already-running" });
+
+    expect(nothing.message).not.toBe(running.message);
+    expect(nothing.variant).toBe("info");
   });
 });

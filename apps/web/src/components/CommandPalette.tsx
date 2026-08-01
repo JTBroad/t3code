@@ -29,6 +29,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  BrainIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -64,6 +65,7 @@ import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useConsolidateMemory } from "../hooks/useConsolidateMemory";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
@@ -547,6 +549,8 @@ function OpenCommandPaletteDialog(props: {
   const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
     reportFailure: false,
   });
+  const { consolidate: consolidateMemory, canConsolidate: canConsolidateMemory } =
+    useConsolidateMemory();
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -1460,6 +1464,21 @@ function OpenCommandPaletteDialog(props: {
       keepOpen: true,
       run: async () => {
         await startAddProjectBrowse(wslAddProjectEnvironmentOption.environmentId);
+      },
+    });
+  }
+
+  // Hidden rather than disabled while a run is in flight: a palette entry that
+  // does nothing when selected is worse than one that isn't offered.
+  if (canConsolidateMemory) {
+    actionItems.push({
+      kind: "action",
+      value: "action:consolidate-memory",
+      searchTerms: ["consolidate", "memory", "notes", "zettelkasten", "promote"],
+      title: "Consolidate memory",
+      icon: <BrainIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await consolidateMemory();
       },
     });
   }
