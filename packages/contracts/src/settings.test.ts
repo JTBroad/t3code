@@ -111,6 +111,28 @@ describe("ClientSettings sidebar v2", () => {
   });
 });
 
+describe("ServerSettings memory and drive roots", () => {
+  it("defaults both roots to empty so the server resolves them from stateDir", () => {
+    expect(DEFAULT_SERVER_SETTINGS.memoryRootDirectory).toBe("");
+    expect(DEFAULT_SERVER_SETTINGS.driveRootDirectory).toBe("");
+  });
+
+  it("decodes settings written before these keys existed", () => {
+    const decoded = decodeServerSettings({ addProjectBaseDirectory: "~/Development" });
+    expect(decoded.memoryRootDirectory).toBe("");
+    expect(decoded.driveRootDirectory).toBe("");
+  });
+
+  it("trims a configured root so a stray space cannot create a sibling store", () => {
+    const decoded = decodeServerSettings({
+      memoryRootDirectory: "  ~/notes  ",
+      driveRootDirectory: "  ~/generated  ",
+    });
+    expect(decoded.memoryRootDirectory).toBe("~/notes");
+    expect(decoded.driveRootDirectory).toBe("~/generated");
+  });
+});
+
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});

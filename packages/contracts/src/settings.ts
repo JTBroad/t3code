@@ -543,6 +543,17 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // Root for the shared Zettelkasten memory store. Deliberately not
+  // per-project: how the user works is a user-level fact, and per-project
+  // stores would scatter those notes back into the repos they describe.
+  // Project scoping is applied at recall time from record provenance instead.
+  // Empty means "use the stateDir-derived default" (<stateDir>/memory).
+  memoryRootDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // Root for generated files that should not be committed to any project.
+  // Files land under <root>/<project-segment>/ so they stay attributable
+  // without needing a separate store per project.
+  // Empty means "use the stateDir-derived default" (<stateDir>/drive).
+  driveRootDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
