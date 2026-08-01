@@ -121,7 +121,11 @@ function RootRouteView() {
   // everything else -- including settings -- stays in the Threads workspace.
   const appShell = (
     <CommandPalette>
-      <div className="flex h-screen min-h-0 w-full">
+      {/* The sidebar primitive positions its panel `fixed left-0`, which
+          ignores this flex row and would sit on top of the rail. Offsetting it
+          by the rail width here keeps the override scoped to this shell rather
+          than changing the shared primitive for every other consumer. */}
+      <div className="flex h-screen min-h-0 w-full [&_[data-slot=sidebar-container]]:left-12">
         <WorkspaceRail />
         <div className="min-w-0 flex-1">
           {isMemoryWorkspacePath(pathname) ? (

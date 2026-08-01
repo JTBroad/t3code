@@ -109,7 +109,12 @@ export function MemoryView() {
     await consolidate();
     notesQuery.refresh();
     artifactsQuery.refresh();
-  }, [artifactsQuery, consolidate, notesQuery]);
+    // The detail panes need refreshing too. A run reindexes every note, so the
+    // open one can change underneath a stale cache -- and the note whose
+    // content just changed is exactly the one being looked at.
+    noteQuery.refresh();
+    artifactQuery.refresh();
+  }, [artifactQuery, artifactsQuery, consolidate, noteQuery, notesQuery]);
 
   /** Jumping to an artifact switches tabs, so the link actually lands somewhere. */
   const openArtifact = useCallback((id: string) => {
