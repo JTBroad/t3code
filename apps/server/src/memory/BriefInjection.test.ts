@@ -13,7 +13,7 @@ import {
   stripDailyScaffold,
   stripSummaryHeading,
 } from "./BriefInjection.ts";
-import { RECEIPTS_DIRNAME } from "./Consolidation.ts";
+import { SUMMARIES_DIRNAME } from "./Consolidation.ts";
 import { DAILY_SCAFFOLD } from "./DailyStore.ts";
 
 const layer = it.layer(NodeServices.layer);
@@ -82,7 +82,7 @@ describe("readLatestSummary", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-brief-" });
-        const directory = path.join(memoryRoot, RECEIPTS_DIRNAME);
+        const directory = path.join(memoryRoot, SUMMARIES_DIRNAME);
         yield* fs.makeDirectory(directory, { recursive: true });
 
         // Filenames are ISO stamps with ':' and '.' replaced, so lexical order
@@ -107,7 +107,7 @@ describe("readLatestSummary", () => {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-brief-" });
-        const directory = path.join(memoryRoot, RECEIPTS_DIRNAME);
+        const directory = path.join(memoryRoot, SUMMARIES_DIRNAME);
         yield* fs.makeDirectory(directory, { recursive: true });
 
         yield* fs.writeFileString(

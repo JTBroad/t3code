@@ -12,7 +12,7 @@
  *  6. release the rotated buffer only after promotion succeeded
  *
  * The rule that is easiest to violate: a cycle must not consume its own
- * output. The summary goes to a `receipts/` subdirectory that the note reindex
+ * output. The summary goes to a `summaries/` subdirectory that the note reindex
  * skips and the input set never includes. Without that, each run spends more of
  * its budget reprocessing its own exhaust until it does nothing else.
  *
@@ -31,8 +31,14 @@ import { artifactsCreatedSince } from "./ArtifactStore.ts";
 import { DAILY_SCAFFOLD, rotateDaily } from "./DailyStore.ts";
 import { reindexAll, writeNote, type MemoryNote } from "./NoteStore.ts";
 
-/** Summaries live here. The note reindex ignores the whole directory. */
-export const RECEIPTS_DIRNAME = "receipts";
+/**
+ * Summaries live here. The note reindex ignores the whole directory.
+ *
+ * Deliberately not "receipts": `RuntimeReceiptBus` already owns that word for
+ * async runtime milestones, and two unrelated meanings for one term in the same
+ * codebase confuses every future reader.
+ */
+export const SUMMARIES_DIRNAME = "summaries";
 
 const LOCK_FILENAME = ".consolidation.lock";
 const MARKER_FILENAME = ".last-consolidated";
@@ -251,7 +257,7 @@ const writeSummary = Effect.fn("memory.writeConsolidationSummary")(function* (in
 }) {
   const path = yield* Path.Path;
   const stamp = input.now.replace(/[:.]/g, "-");
-  const summaryPath = path.join(input.memoryRoot, RECEIPTS_DIRNAME, `${stamp}.md`);
+  const summaryPath = path.join(input.memoryRoot, SUMMARIES_DIRNAME, `${stamp}.md`);
 
   const contents = [
     `# Consolidation ${input.now}`,

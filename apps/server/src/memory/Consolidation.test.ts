@@ -14,7 +14,7 @@ import {
   noteIdFor,
   parseDailyEntries,
   readLastConsolidatedAt,
-  RECEIPTS_DIRNAME,
+  SUMMARIES_DIRNAME,
   runConsolidation,
 } from "./Consolidation.ts";
 import { listNotes, reindexAll } from "./NoteStore.ts";
@@ -167,7 +167,7 @@ layer("consolidation", (it) => {
 
         // The summary exists, and lives outside the note corpus.
         expect(yield* fs.exists(first.summaryPath)).toBe(true);
-        expect(path.dirname(first.summaryPath)).toBe(path.join(memoryRoot, RECEIPTS_DIRNAME));
+        expect(path.dirname(first.summaryPath)).toBe(path.join(memoryRoot, SUMMARIES_DIRNAME));
 
         yield* capture(memoryRoot, "Second observation.", null);
         const second = yield* runConsolidation({ memoryRoot });

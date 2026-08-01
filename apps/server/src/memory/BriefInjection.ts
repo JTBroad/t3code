@@ -36,7 +36,7 @@ import * as Path from "effect/Path";
 
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { RECEIPTS_DIRNAME } from "./Consolidation.ts";
+import { SUMMARIES_DIRNAME } from "./Consolidation.ts";
 import { buildThemesSection, composeBrief } from "./ContinuityBrief.ts";
 import { DAILY_SCAFFOLD, readDaily } from "./DailyStore.ts";
 import { resolveMemoryRoot } from "./MemoryPaths.ts";
@@ -98,7 +98,7 @@ export const readLatestSummary = Effect.fn("memory.readLatestSummary")(function*
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const directory = path.join(input.memoryRoot, RECEIPTS_DIRNAME);
+  const directory = path.join(input.memoryRoot, SUMMARIES_DIRNAME);
 
   const exists = yield* fs.exists(directory);
   if (!exists) {
