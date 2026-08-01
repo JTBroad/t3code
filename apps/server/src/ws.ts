@@ -65,6 +65,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
+import * as MemoryRpc from "./memory/MemoryRpc.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -1395,6 +1396,26 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "orchestration" },
           ),
+        [WS_METHODS.memoryConsolidate]: (_input) =>
+          observeRpcEffect(WS_METHODS.memoryConsolidate, MemoryRpc.memoryConsolidate(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryListNotes]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryListNotes, MemoryRpc.memoryListNotes(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryGetNote]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryGetNote, MemoryRpc.memoryGetNote(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryListArtifacts]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryListArtifacts, MemoryRpc.memoryListArtifacts(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryGetArtifact]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
+            "rpc.aggregate": "memory",
+          }),
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",

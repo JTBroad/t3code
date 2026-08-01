@@ -895,6 +895,10 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provideMerge(makeAuthTestLayer()),
       Layer.provideMerge(ServerSecretStore.layer),
+      // The memory RPC handlers read the note and artifact indexes directly, so
+      // the router needs a SQL client of its own rather than one buried inside
+      // the auth layer.
+      Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(HttpResponseCompression.layerNode),
