@@ -8,11 +8,16 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import {
+  isMemoryWorkspacePath,
+  WORKSPACE_RAIL_WIDTH,
+  WorkspaceRail,
+} from "../components/WorkspaceRail";
 import { CommandPalette } from "../components/CommandPalette";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
@@ -27,6 +32,10 @@ import {
   toastManager,
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import {
+  MACOS_TRAFFIC_LIGHTS_TOP_INSET,
+  useMacosWindowControlsOverlay,
+} from "../hooks/useMacosWindowControls";
 import { useClientSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -87,6 +96,7 @@ function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
+  const hasMacosWindowControls = useMacosWindowControlsOverlay();
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -115,11 +125,45 @@ function RootRouteView() {
     );
   }
 
+  // The rail sits outside AppSidebarLayout so each workspace keeps its own
+  // sidebar. Memory brings its own, so it renders without the thread sidebar;
+  // everything else -- including settings -- stays in the Threads workspace.
   const appShell = (
     <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
+      {/* The sidebar primitive positions its panel `fixed left-0`, which
+          ignores this flex row and would sit on top of the rail. Offsetting it
+          by the rail width here keeps the override scoped to this shell rather
+          than changing the shared primitive for every other consumer.
+          `--workspace-rail-width` tells window-chrome insets measured from the
+          window edge that the sidebar no longer starts there. */}
+      <div
+        data-workspace-rail=""
+        style={{ "--workspace-rail-width": WORKSPACE_RAIL_WIDTH } as CSSProperties}
+        className="flex h-screen min-h-0 w-full [&_[data-slot=sidebar-container]]:left-(--workspace-rail-width)"
+      >
+        <WorkspaceRail />
+        <div className="min-w-0 flex-1">
+          {isMemoryWorkspacePath(pathname) ? (
+            // AppSidebarLayout is what normally reserves the title bar strip,
+            // and this workspace renders without it -- so its own content
+            // starts at y=0 and the window controls land on top of it. Applied
+            // here rather than inside the workspace so any future one rendered
+            // without the sidebar layout inherits the same clearance.
+            <div
+              className="h-full min-h-0"
+              style={
+                hasMacosWindowControls ? { paddingTop: MACOS_TRAFFIC_LIGHTS_TOP_INSET } : undefined
+              }
+            >
+              <Outlet />
+            </div>
+          ) : (
+            <AppSidebarLayout>
+              <Outlet />
+            </AppSidebarLayout>
+          )}
+        </div>
+      </div>
     </CommandPalette>
   );
 

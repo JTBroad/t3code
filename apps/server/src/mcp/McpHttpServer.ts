@@ -17,6 +17,8 @@ import {
   PreviewSnapshotToolkitHandlersLive,
   PreviewStandardToolkitHandlersLive,
 } from "./toolkits/preview/handlers.ts";
+import { MemoryToolkitHandlersLive } from "./toolkits/memory/handlers.ts";
+import { MemoryToolkit } from "./toolkits/memory/tools.ts";
 import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
@@ -211,9 +213,14 @@ const PreviewSnapshotRegistrationLive = Layer.effectDiscard(registerPreviewSnaps
   Layer.provide(PreviewSnapshotToolkitHandlersLive),
 );
 
+const MemoryToolkitRegistrationLive = McpServer.toolkit(MemoryToolkit).pipe(
+  Layer.provide(MemoryToolkitHandlersLive),
+);
+
 export const PreviewToolkitRegistrationLive = Layer.mergeAll(
   PreviewStandardToolkitRegistrationLive,
   PreviewSnapshotRegistrationLive,
+  MemoryToolkitRegistrationLive,
 );
 
 const McpTransportLive = McpServer.layerHttp({

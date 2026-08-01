@@ -1,0 +1,203 @@
+/**
+ * ArtifactStore - Generated files that should not be committed to any project.
+ *
+ * The value here is not the file browser -- worktrees and diff views already
+ * beat that. It is that an artifact becomes *addressable*: a stable id,
+ * provenance back to the thread and turn that produced it, and a place in the
+ * corpus that a consolidation run can cite. Observations say what happened;
+ * artifacts say what was actually done.
+ *
+ * Every write passes through the containment guard, and a path that escapes the
+ * configured drive root is refused outright rather than clamped.
+ *
+ * @module ArtifactStore
+ */
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeCrypto from "node:crypto";
+
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { writeFileStringAtomically } from "../atomicWrite.ts";
+import { resolveWithinRoot } from "./MemoryPaths.ts";
+
+export class ArtifactPathRejectedError extends Error {
+  readonly _tag = "ArtifactPathRejectedError";
+  readonly relativePath: string;
+
+  constructor(relativePath: string) {
+    super(`Artifact path escapes the drive root: ${relativePath}`);
+    this.relativePath = relativePath;
+  }
+}
+
+export interface WriteArtifactInput {
+  readonly driveRoot: string;
+  /** Bucket for the originating project, or null when unattributable. */
+  readonly projectSegment: string | null;
+  /** Path within the project bucket, e.g. `2026-08-01/review-notes.md`. */
+  readonly relativePath: string;
+  readonly contents: string;
+  readonly kind: string;
+  readonly repositoryPath?: string | null | undefined;
+  readonly threadId?: string | null | undefined;
+  readonly turnId?: string | null | undefined;
+  /** Links the artifact to a real diff, which beats prose as evidence. */
+  readonly checkpointRef?: string | null | undefined;
+  readonly createdAt: string;
+}
+
+export interface ArtifactRecord {
+  readonly id: string;
+  readonly relative_path: string;
+  readonly project_segment: string | null;
+  readonly kind: string;
+  readonly byte_size: number;
+  readonly content_sha256: string;
+  readonly thread_id: string | null;
+  readonly turn_id: string | null;
+  readonly checkpoint_ref: string | null;
+  readonly created_at: string;
+  readonly archived_at: string | null;
+}
+
+const DEFAULT_LIST_LIMIT = 100;
+
+/** Path inside the drive root, namespaced by project so files stay attributable. */
+export function artifactRelativePath(input: {
+  readonly projectSegment: string | null;
+  readonly relativePath: string;
+}): string {
+  return input.projectSegment
+    ? `${input.projectSegment}/${input.relativePath}`
+    : input.relativePath;
+}
+
+/**
+ * Write an artifact and index it.
+ *
+ * Fails without touching disk or the database when the path escapes the root:
+ * a partial write plus no row would leave an unreferenced file behind.
+ */
+export const writeArtifact = Effect.fn("memory.writeArtifact")(function* (
+  input: WriteArtifactInput,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const sql = yield* SqlClient.SqlClient;
+
+  const relativePath = artifactRelativePath(input);
+  const absolutePath = resolveWithinRoot({ root: input.driveRoot, relativePath });
+  if (!absolutePath) {
+    return yield* Effect.fail(new ArtifactPathRejectedError(relativePath));
+  }
+
+  const id = `drv_${NodeCrypto.randomUUID()}`;
+  const contentSha256 = NodeCrypto.createHash("sha256").update(input.contents).digest("hex");
+  const byteSize = Buffer.byteLength(input.contents, "utf8");
+
+  yield* fs.makeDirectory(path.dirname(absolutePath), { recursive: true });
+  yield* writeFileStringAtomically({ filePath: absolutePath, contents: input.contents });
+
+  yield* sql`
+    INSERT INTO drive_artifacts
+      (id, relative_path, project_segment, repository_path, thread_id, turn_id,
+       checkpoint_ref, kind, byte_size, content_sha256, created_at, archived_at)
+    VALUES
+      (${id}, ${relativePath}, ${input.projectSegment}, ${input.repositoryPath ?? null},
+       ${input.threadId ?? null}, ${input.turnId ?? null}, ${input.checkpointRef ?? null},
+       ${input.kind}, ${byteSize}, ${contentSha256}, ${input.createdAt}, ${null})
+  `;
+
+  return { id, relativePath, absolutePath, contentSha256, byteSize };
+});
+
+/** Artifacts for a project (or all projects), newest first. */
+export const listArtifacts = Effect.fn("memory.listArtifacts")(function* (input: {
+  readonly projectSegment?: string | undefined;
+  readonly includeArchived?: boolean | undefined;
+  readonly limit?: number | undefined;
+}) {
+  const sql = yield* SqlClient.SqlClient;
+  const projectSegment = input.projectSegment ?? null;
+  const includeArchived = input.includeArchived === true ? 1 : 0;
+
+  return yield* sql<ArtifactRecord>`
+    SELECT id, relative_path, project_segment, kind, byte_size, content_sha256,
+           thread_id, turn_id, checkpoint_ref, created_at, archived_at
+    FROM drive_artifacts
+    WHERE (${projectSegment} IS NULL OR project_segment = ${projectSegment})
+      AND (${includeArchived} = 1 OR archived_at IS NULL)
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${input.limit ?? DEFAULT_LIST_LIMIT}
+  `;
+});
+
+/** Look one up by id, archived or not. */
+export const getArtifact = Effect.fn("memory.getArtifact")(function* (id: string) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<ArtifactRecord>`
+    SELECT id, relative_path, project_segment, kind, byte_size, content_sha256,
+           thread_id, turn_id, checkpoint_ref, created_at, archived_at
+    FROM drive_artifacts WHERE id = ${id}
+  `;
+  return rows[0] ?? null;
+});
+
+/**
+ * Mark an artifact archived, which also releases its path for reuse -- the
+ * live-path index is partial on `archived_at IS NULL`. The file is left on
+ * disk; this is a bookkeeping change, not a delete.
+ */
+export const archiveArtifact = Effect.fn("memory.archiveArtifact")(function* (input: {
+  readonly id: string;
+  readonly archivedAt: string;
+}) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    UPDATE drive_artifacts SET archived_at = ${input.archivedAt}
+    WHERE id = ${input.id} AND archived_at IS NULL
+  `;
+});
+
+export interface CitingNoteRow {
+  readonly note_id: string;
+  readonly title: string | null;
+  readonly relation: string;
+  readonly context: string | null;
+}
+
+/**
+ * Which notes cite this artifact.
+ *
+ * The reverse of a note's `sources`. Provenance has to run both ways or
+ * "why does the agent believe this?" has no clickable answer.
+ */
+export const notesCiting = Effect.fn("memory.notesCiting")(function* (artifactId: string) {
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql<CitingNoteRow>`
+    SELECT sources.note_id, notes.title, sources.relation, sources.context
+    FROM memory_note_sources AS sources
+    LEFT JOIN memory_notes AS notes ON notes.id = sources.note_id
+    WHERE sources.artifact_id = ${artifactId}
+    ORDER BY sources.note_id
+  `;
+});
+
+/** Artifacts created since a timestamp -- the input set for a consolidation run. */
+export const artifactsCreatedSince = Effect.fn("memory.artifactsCreatedSince")(function* (input: {
+  readonly since: string | null;
+  readonly limit?: number | undefined;
+}) {
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql<ArtifactRecord>`
+    SELECT id, relative_path, project_segment, kind, byte_size, content_sha256,
+           thread_id, turn_id, checkpoint_ref, created_at, archived_at
+    FROM drive_artifacts
+    WHERE (${input.since} IS NULL OR created_at > ${input.since})
+    ORDER BY created_at ASC
+    LIMIT ${input.limit ?? DEFAULT_LIST_LIMIT}
+  `;
+});

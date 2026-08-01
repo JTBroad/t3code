@@ -218,6 +218,20 @@ export const ServerObservability = Schema.Struct({
 });
 export type ServerObservability = typeof ServerObservability.Type;
 
+/**
+ * Where the memory and drive stores actually resolve to.
+ *
+ * The settings fields are empty by default, meaning "use the derived default".
+ * A settings input that renders blank with no explanation reads as broken, so
+ * the client needs the resolved paths to show as placeholder text. Resolution
+ * stays on the server; this only reports its result.
+ */
+export const ServerMemoryPaths = Schema.Struct({
+  memoryDirectoryPath: TrimmedNonEmptyString,
+  driveDirectoryPath: TrimmedNonEmptyString,
+});
+export type ServerMemoryPaths = typeof ServerMemoryPaths.Type;
+
 export const ServerTraceDiagnosticsErrorKind = Schema.Literals([
   "trace-file-not-found",
   "trace-file-read-failed",
@@ -424,6 +438,8 @@ export const ServerConfig = Schema.Struct({
   // failing the whole config decode.
   availableEditors: ForwardCompatibleArray(EditorId),
   observability: ServerObservability,
+  /** Optional so a client can decode a config from a server that predates it. */
+  memoryPaths: Schema.optionalKey(ServerMemoryPaths),
   settings: ServerSettings,
   /** Whether shell subscriptions can emit an opt-in catch-up completion marker. */
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),

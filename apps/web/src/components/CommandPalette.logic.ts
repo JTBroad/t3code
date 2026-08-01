@@ -398,6 +398,48 @@ export function buildRootGroups(input: {
   return groups;
 }
 
+/**
+ * How a consolidation outcome should be reported to the user.
+ *
+ * "Already running" is a success variant, not an error: it is what pressing the
+ * button twice does. Showing it as a failure teaches people that the feature is
+ * broken when it worked exactly as designed.
+ */
+export interface ConsolidationToast {
+  readonly variant: "success" | "info" | "error";
+  readonly message: string;
+}
+
+export function describeConsolidationOutcome(
+  outcome:
+    | { readonly kind: "completed"; readonly promoted: number; readonly entriesRead: number }
+    | { readonly kind: "already-running" }
+    | { readonly kind: "nothing-to-do" },
+): ConsolidationToast {
+  switch (outcome.kind) {
+    case "completed": {
+      if (outcome.promoted === 0) {
+        return {
+          variant: "info",
+          message: `Reviewed ${formatCount(outcome.entriesRead, "entry", "entries")}, nothing new to promote.`,
+        };
+      }
+      return {
+        variant: "success",
+        message: `Promoted ${formatCount(outcome.promoted, "note", "notes")} from ${formatCount(outcome.entriesRead, "entry", "entries")}.`,
+      };
+    }
+    case "already-running":
+      return { variant: "info", message: "Consolidation is already running." };
+    case "nothing-to-do":
+      return { variant: "info", message: "Nothing captured since the last consolidation." };
+  }
+}
+
+function formatCount(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): string {
   switch (mode) {
     case "root":

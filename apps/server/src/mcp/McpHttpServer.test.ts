@@ -269,3 +269,56 @@ it.effect("registers annotated tools and preserves authenticated request context
     }),
   ).pipe(Effect.provide(TestLayer)),
 );
+
+// Registration wiring is easy to get wrong in a way no unit test catches: a
+// toolkit can be built correctly and still never reach the served layer. This
+// lists tools through the same registration layer the server actually mounts.
+it.effect("serves the memory toolkit alongside preview", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const servedLayer = McpHttpServer.PreviewToolkitRegistrationLive.pipe(
+        Layer.provide(PreviewAutomationBroker.layer.pipe(Layer.provide(NodeServices.layer))),
+        Layer.provideMerge(
+          McpServer.layerHttp({
+            name: "MCP toolkit listing test",
+            version: "1.0.0",
+            path: "/mcp",
+          }),
+        ),
+      );
+      yield* HttpRouter.serve(servedLayer, {
+        disableListenLog: true,
+        disableLogger: true,
+      }).pipe(Layer.build);
+      const httpClient = yield* HttpClient.HttpClient;
+
+      const initialize = yield* httpClient.post("/mcp", {
+        headers: { accept: "application/json, text/event-stream" },
+        body: HttpBody.text(
+          `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-test","version":"1.0.0"}}}`,
+          "application/json",
+        ),
+      });
+      expect(initialize.status).toBe(200);
+      const sessionId = initialize.headers["mcp-session-id"];
+
+      const listed = yield* httpClient.post("/mcp", {
+        headers: {
+          accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId!,
+        },
+        body: HttpBody.text(
+          `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
+          "application/json",
+        ),
+      });
+      const body = yield* listed.text;
+
+      for (const tool of ["memory_append_daily", "memory_read_daily", "memory_search"]) {
+        expect(body).toContain(tool);
+      }
+      // Preview must still be served: the memory toolkit is additive.
+      expect(body).toContain("preview_status");
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);

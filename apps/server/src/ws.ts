@@ -65,6 +65,8 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
+import * as MemoryRpc from "./memory/MemoryRpc.ts";
+import * as MemoryPaths from "./memory/MemoryPaths.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -1002,9 +1004,8 @@ const makeWsRpcLayer = (
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
-        const settings = ServerSettings.redactServerSettingsForClient(
-          yield* serverSettings.getSettings,
-        );
+        const rawSettings = yield* serverSettings.getSettings;
+        const settings = ServerSettings.redactServerSettingsForClient(rawSettings);
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
 
@@ -1028,6 +1029,12 @@ const makeWsRpcLayer = (
               ? { otlpMetricsUrl: config.otlpMetricsUrl }
               : {}),
             otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
+          },
+          // Resolved from the unredacted settings: these are plain paths, and
+          // the redactor only rewrites provider environment entries.
+          memoryPaths: {
+            memoryDirectoryPath: MemoryPaths.resolveMemoryRoot(rawSettings, config),
+            driveDirectoryPath: MemoryPaths.resolveDriveRoot(rawSettings, config),
           },
           settings,
           shellResumeCompletionMarker: true,
@@ -1395,6 +1402,30 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "orchestration" },
           ),
+        [WS_METHODS.memoryConsolidate]: (_input) =>
+          observeRpcEffect(WS_METHODS.memoryConsolidate, MemoryRpc.memoryConsolidate(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryReadDaily]: (_input) =>
+          observeRpcEffect(WS_METHODS.memoryReadDaily, MemoryRpc.memoryReadDaily(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryListNotes]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryListNotes, MemoryRpc.memoryListNotes(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryGetNote]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryGetNote, MemoryRpc.memoryGetNote(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryListArtifacts]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryListArtifacts, MemoryRpc.memoryListArtifacts(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryGetArtifact]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
+            "rpc.aggregate": "memory",
+          }),
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",

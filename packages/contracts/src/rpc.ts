@@ -106,6 +106,21 @@ import {
   TerminalWriteInput,
 } from "./terminal.ts";
 import {
+  MemoryConsolidateInput,
+  MemoryConsolidateResult,
+  MemoryGetArtifactInput,
+  MemoryGetArtifactResult,
+  MemoryGetNoteInput,
+  MemoryGetNoteResult,
+  MemoryListArtifactsInput,
+  MemoryListArtifactsResult,
+  MemoryListNotesInput,
+  MemoryListNotesResult,
+  MemoryOperationError,
+  MemoryReadDailyInput,
+  MemoryReadDailyResult,
+} from "./memory.ts";
+import {
   DiscoveredLocalServerList,
   PreviewCloseInput,
   PreviewError,
@@ -224,6 +239,14 @@ export const WS_METHODS = {
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
 
+  // Memory methods
+  memoryConsolidate: "memory.consolidate",
+  memoryReadDaily: "memory.readDaily",
+  memoryListNotes: "memory.listNotes",
+  memoryGetNote: "memory.getNote",
+  memoryListArtifacts: "memory.listArtifacts",
+  memoryGetArtifact: "memory.getArtifact",
+
   // Provider methods
   providersListAgents: "providers.listAgents",
 
@@ -293,6 +316,42 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryConsolidateRpc = Rpc.make(WS_METHODS.memoryConsolidate, {
+  payload: MemoryConsolidateInput,
+  success: MemoryConsolidateResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryReadDailyRpc = Rpc.make(WS_METHODS.memoryReadDaily, {
+  payload: MemoryReadDailyInput,
+  success: MemoryReadDailyResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryListNotesRpc = Rpc.make(WS_METHODS.memoryListNotes, {
+  payload: MemoryListNotesInput,
+  success: MemoryListNotesResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryGetNoteRpc = Rpc.make(WS_METHODS.memoryGetNote, {
+  payload: MemoryGetNoteInput,
+  success: MemoryGetNoteResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryListArtifactsRpc = Rpc.make(WS_METHODS.memoryListArtifacts, {
+  payload: MemoryListArtifactsInput,
+  success: MemoryListArtifactsResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryGetArtifactRpc = Rpc.make(WS_METHODS.memoryGetArtifact, {
+  payload: MemoryGetArtifactInput,
+  success: MemoryGetArtifactResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
 });
 
 export const WsProvidersListAgentsRpc = Rpc.make(WS_METHODS.providersListAgents, {
@@ -801,6 +860,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsProvidersListAgentsRpc,
+  WsMemoryConsolidateRpc,
+  WsMemoryReadDailyRpc,
+  WsMemoryListNotesRpc,
+  WsMemoryGetNoteRpc,
+  WsMemoryListArtifactsRpc,
+  WsMemoryGetArtifactRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
