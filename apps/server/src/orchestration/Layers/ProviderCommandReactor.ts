@@ -26,6 +26,7 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { buildBriefForThreadOrEmpty, prependBrief } from "../../memory/BriefInjection.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -1053,6 +1054,17 @@ const make = Effect.gen(function* () {
       }
     }
 
+    // Recall runs on the opening turn only: the brief exists to ground a fresh
+    // session, and re-sending it every turn is the "always fires" failure that
+    // trains a model to skip it. Unlike the forked work above this has to be
+    // sequential -- it changes the text the turn is built from.
+    const messageTextWithBrief = isFirstUserMessageTurn
+      ? prependBrief(
+          yield* buildBriefForThreadOrEmpty({ threadId: event.payload.threadId }),
+          message.text,
+        )
+      : message.text;
+
     const handleTurnStartFailure = (cause: Cause.Cause<unknown>) => {
       if (Cause.hasInterruptsOnly(cause)) {
         return Effect.void;
@@ -1091,7 +1103,7 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      messageText: messageTextWithBrief,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

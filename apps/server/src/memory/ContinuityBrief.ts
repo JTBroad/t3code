@@ -14,12 +14,10 @@
  *  - only whitelisted sources contribute
  *  - nothing meaningful to say means empty output, not an empty header
  *
- * INJECTION IS NOT WIRED. This module builds the text; nothing calls it yet.
- * There is no single prompt-composition point every provider passes through --
- * `customInstructions` is Copilot-only and `CodexDeveloperInstructions` is
- * Codex-only -- and a brief injected for one provider is worse than none,
- * because behaviour would silently differ by provider. Wiring it needs a
- * per-provider decision that has not been made.
+ * This module only composes the text. Delivery lives in `BriefInjection.ts`,
+ * which prepends the brief to a thread's first user message because no single
+ * prompt-composition point reaches every provider -- see that module for why,
+ * and for the provider-agnostic seam that should eventually replace it.
  *
  * @module ContinuityBrief
  */
