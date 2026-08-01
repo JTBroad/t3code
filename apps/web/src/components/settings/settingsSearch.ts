@@ -107,6 +107,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "memory-root-directory",
+    title: "Memory root directory",
+    to: "/settings/general",
+  },
+  {
+    id: "drive-root-directory",
+    title: "Drive root directory",
+    to: "/settings/general",
+  },
+  {
     id: "archive-confirmation",
     title: "Archive confirmation",
     to: "/settings/general",

@@ -78,6 +78,7 @@ import {
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import {
+  primaryServerMemoryPathsAtom,
   primaryServerObservabilityAtom,
   primaryServerProvidersAtom,
   serverEnvironment,
@@ -610,6 +611,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
+      ...(settings.memoryRootDirectory !== DEFAULT_UNIFIED_SETTINGS.memoryRootDirectory
+        ? ["Memory root directory"]
+        : []),
+      ...(settings.driveRootDirectory !== DEFAULT_UNIFIED_SETTINGS.driveRootDirectory
+        ? ["Drive root directory"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -625,6 +632,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
+      settings.memoryRootDirectory,
+      settings.driveRootDirectory,
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
@@ -669,6 +678,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+      memoryRootDirectory: DEFAULT_UNIFIED_SETTINGS.memoryRootDirectory,
+      driveRootDirectory: DEFAULT_UNIFIED_SETTINGS.driveRootDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
@@ -1122,6 +1133,7 @@ export function GeneralSettingsPanel() {
     readLastEnabledProjectGroupingMode(),
   );
   const observability = useAtomValue(primaryServerObservabilityAtom);
+  const memoryPaths = useAtomValue(primaryServerMemoryPathsAtom);
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const diagnosticsDescription = formatDiagnosticsDescription({
     localTracingEnabled: observability?.localTracingEnabled ?? false,
@@ -1536,6 +1548,63 @@ export function GeneralSettingsPanel() {
               placeholder="~/"
               spellCheck={false}
               aria-label="Add project base directory"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("memory-root-directory")}
+          description="Where the shared memory notes are stored. Shared across every project on purpose — notes about how you work are not per-repository. Changing this does not move existing files."
+          resetAction={
+            settings.memoryRootDirectory !== DEFAULT_UNIFIED_SETTINGS.memoryRootDirectory ? (
+              <SettingResetButton
+                label="memory root directory"
+                onClick={() =>
+                  updateSettings({
+                    memoryRootDirectory: DEFAULT_UNIFIED_SETTINGS.memoryRootDirectory,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-72"
+              value={settings.memoryRootDirectory}
+              onCommit={(next) => updateSettings({ memoryRootDirectory: next })}
+              // Empty means "use the default", so the placeholder has to name
+              // the resolved path — a blank box with no explanation reads as
+              // broken and invites typing a path nobody needs.
+              placeholder={memoryPaths?.memoryDirectoryPath ?? "Using the default location"}
+              spellCheck={false}
+              aria-label="Memory root directory"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("drive-root-directory")}
+          description="Where generated files that should not be committed are written, grouped by project. Changing this does not move existing files."
+          resetAction={
+            settings.driveRootDirectory !== DEFAULT_UNIFIED_SETTINGS.driveRootDirectory ? (
+              <SettingResetButton
+                label="drive root directory"
+                onClick={() =>
+                  updateSettings({
+                    driveRootDirectory: DEFAULT_UNIFIED_SETTINGS.driveRootDirectory,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-72"
+              value={settings.driveRootDirectory}
+              onCommit={(next) => updateSettings({ driveRootDirectory: next })}
+              placeholder={memoryPaths?.driveDirectoryPath ?? "Using the default location"}
+              spellCheck={false}
+              aria-label="Drive root directory"
             />
           }
         />

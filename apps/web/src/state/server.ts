@@ -98,3 +98,13 @@ export const primaryServerObservabilityAtom = Atom.make(
   (get): ServerConfig["observability"] | null =>
     get(primaryServerConfigAtom)?.observability ?? null,
 ).pipe(Atom.withLabel("web-primary-server-observability"));
+
+/**
+ * Resolved memory and drive roots, or null against a server that predates them.
+ *
+ * The settings fields default to empty meaning "use the derived default", so
+ * the inputs need these to render a truthful placeholder instead of a blank box.
+ */
+export const primaryServerMemoryPathsAtom = Atom.make(
+  (get): ServerConfig["memoryPaths"] | null => get(primaryServerConfigAtom)?.memoryPaths ?? null,
+).pipe(Atom.withLabel("web-primary-server-memory-paths"));

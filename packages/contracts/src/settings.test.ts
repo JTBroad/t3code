@@ -131,6 +131,24 @@ describe("ServerSettings memory and drive roots", () => {
     expect(decoded.memoryRootDirectory).toBe("~/notes");
     expect(decoded.driveRootDirectory).toBe("~/generated");
   });
+
+  it("carries both roots through the patch schema", () => {
+    // `ServerSettingsPatch` is maintained by hand, so a field can exist on
+    // `ServerSettings` and still be silently dropped on the way to the server.
+    // That failure looks like a settings row that reverts on reload.
+    const patch = decodeServerSettingsPatch({
+      memoryRootDirectory: "~/notes",
+      driveRootDirectory: "~/generated",
+    });
+
+    expect(patch.memoryRootDirectory).toBe("~/notes");
+    expect(patch.driveRootDirectory).toBe("~/generated");
+  });
+
+  it("accepts an empty patch value as a reset to the derived default", () => {
+    const patch = decodeServerSettingsPatch({ memoryRootDirectory: "" });
+    expect(patch.memoryRootDirectory).toBe("");
+  });
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {

@@ -66,6 +66,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as MemoryRpc from "./memory/MemoryRpc.ts";
+import * as MemoryPaths from "./memory/MemoryPaths.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -1003,9 +1004,8 @@ const makeWsRpcLayer = (
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
-        const settings = ServerSettings.redactServerSettingsForClient(
-          yield* serverSettings.getSettings,
-        );
+        const rawSettings = yield* serverSettings.getSettings;
+        const settings = ServerSettings.redactServerSettingsForClient(rawSettings);
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
 
@@ -1029,6 +1029,12 @@ const makeWsRpcLayer = (
               ? { otlpMetricsUrl: config.otlpMetricsUrl }
               : {}),
             otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
+          },
+          // Resolved from the unredacted settings: these are plain paths, and
+          // the redactor only rewrites provider environment entries.
+          memoryPaths: {
+            memoryDirectoryPath: MemoryPaths.resolveMemoryRoot(rawSettings, config),
+            driveDirectoryPath: MemoryPaths.resolveDriveRoot(rawSettings, config),
           },
           settings,
           shellResumeCompletionMarker: true,
