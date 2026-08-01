@@ -117,6 +117,8 @@ import {
   MemoryListNotesInput,
   MemoryListNotesResult,
   MemoryOperationError,
+  MemoryReadDailyInput,
+  MemoryReadDailyResult,
 } from "./memory.ts";
 import {
   DiscoveredLocalServerList,
@@ -239,6 +241,7 @@ export const WS_METHODS = {
 
   // Memory methods
   memoryConsolidate: "memory.consolidate",
+  memoryReadDaily: "memory.readDaily",
   memoryListNotes: "memory.listNotes",
   memoryGetNote: "memory.getNote",
   memoryListArtifacts: "memory.listArtifacts",
@@ -318,6 +321,12 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
 export const WsMemoryConsolidateRpc = Rpc.make(WS_METHODS.memoryConsolidate, {
   payload: MemoryConsolidateInput,
   success: MemoryConsolidateResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsMemoryReadDailyRpc = Rpc.make(WS_METHODS.memoryReadDaily, {
+  payload: MemoryReadDailyInput,
+  success: MemoryReadDailyResult,
   error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
 });
 
@@ -852,6 +861,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsProvidersListAgentsRpc,
   WsMemoryConsolidateRpc,
+  WsMemoryReadDailyRpc,
   WsMemoryListNotesRpc,
   WsMemoryGetNoteRpc,
   WsMemoryListArtifactsRpc,

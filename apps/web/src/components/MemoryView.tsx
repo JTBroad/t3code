@@ -21,7 +21,13 @@ import { Button } from "./ui/button";
 import {
   collectProjectSegments,
   collectTags,
+  countRedactions,
+  dailyEntryKey,
+  DEFAULT_MEMORY_TAB,
   EMPTY_NOTE_FILTERS,
+  MEMORY_TABS,
+  sortDailyEntries,
+  summarizeDaily,
   filterArtifacts,
   filterNotes,
   formatByteSize,
@@ -66,13 +72,16 @@ function FilterSelect({
 
 export function MemoryView() {
   const environmentId = usePrimaryEnvironmentId();
-  const [tab, setTab] = useState<MemoryTab>("notes");
+  const [tab, setTab] = useState<MemoryTab>(DEFAULT_MEMORY_TAB);
   const [noteFilters, setNoteFilters] = useState<NoteFilters>(EMPTY_NOTE_FILTERS);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [projectSegment, setProjectSegment] = useState<string | null>(null);
   const { consolidate, isRunning } = useConsolidateMemory();
 
+  const dailyQuery = useEnvironmentQuery(
+    environmentId === null ? null : memoryEnvironment.daily({ environmentId, input: {} }),
+  );
   const notesQuery = useEnvironmentQuery(
     environmentId === null ? null : memoryEnvironment.notes({ environmentId, input: {} }),
   );
@@ -80,6 +89,11 @@ export function MemoryView() {
     environmentId === null ? null : memoryEnvironment.artifacts({ environmentId, input: {} }),
   );
 
+  const dailyEntries = useMemo(
+    () => sortDailyEntries(dailyQuery.data?.entries ?? []),
+    [dailyQuery.data?.entries],
+  );
+  const dailySummary = useMemo(() => summarizeDaily(dailyEntries), [dailyEntries]);
   const notes = notesQuery.data?.notes ?? [];
   const artifacts = artifactsQuery.data?.artifacts ?? [];
 
@@ -107,6 +121,9 @@ export function MemoryView() {
 
   const refreshAll = useCallback(async () => {
     await consolidate();
+    // Daily first: consolidation clears it, so a stale buffer would still show
+    // entries that have already been promoted.
+    dailyQuery.refresh();
     notesQuery.refresh();
     artifactsQuery.refresh();
     // The detail panes need refreshing too. A run reindexes every note, so the
@@ -114,7 +131,7 @@ export function MemoryView() {
     // content just changed is exactly the one being looked at.
     noteQuery.refresh();
     artifactQuery.refresh();
-  }, [artifactQuery, artifactsQuery, consolidate, noteQuery, notesQuery]);
+  }, [artifactQuery, artifactsQuery, consolidate, dailyQuery, noteQuery, notesQuery]);
 
   /** Jumping to an artifact switches tabs, so the link actually lands somewhere. */
   const openArtifact = useCallback((id: string) => {
@@ -129,6 +146,8 @@ export function MemoryView() {
     setTab("notes");
   }, []);
 
+  const dailyContents = dailyQuery.data?.contents ?? "";
+  const redactionCount = useMemo(() => countRedactions(dailyContents), [dailyContents]);
   const note = noteQuery.data?.note ?? null;
   const backlinks = noteQuery.data?.backlinks ?? [];
   const artifact = artifactQuery.data?.artifact ?? null;
@@ -138,25 +157,42 @@ export function MemoryView() {
     <div className="flex h-full min-h-0 w-full">
       <aside className="flex w-72 shrink-0 flex-col border-r border-border/60">
         <div className="flex items-center gap-1 border-b border-border/60 p-2">
-          {(["notes", "drive"] as const).map((entry) => (
+          {MEMORY_TABS.map((entry) => (
             <button
-              key={entry}
+              key={entry.id}
               type="button"
-              onClick={() => setTab(entry)}
-              aria-current={tab === entry ? "page" : undefined}
+              onClick={() => setTab(entry.id)}
+              aria-current={tab === entry.id ? "page" : undefined}
               className={cn(
-                "flex-1 rounded-md px-2 py-1 text-sm capitalize transition-colors",
-                tab === entry
+                "flex-1 rounded-md px-2 py-1 text-sm transition-colors",
+                tab === entry.id
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent/50",
               )}
             >
-              {entry}
+              {entry.label}
+              {entry.id === "daily" && dailySummary.total > 0 ? (
+                <span className="ml-1 text-xs text-muted-foreground">{dailySummary.total}</span>
+              ) : null}
             </button>
           ))}
         </div>
 
-        {tab === "notes" ? (
+        {tab === "daily" ? (
+          <div className="border-b border-border/60 p-2 text-xs text-muted-foreground">
+            {dailySummary.total === 0
+              ? "Buffer is empty."
+              : `${dailySummary.total} awaiting promotion · ${dailySummary.projects} project${dailySummary.projects === 1 ? "" : "s"}`}
+            {dailySummary.unattributed > 0 ? (
+              // Surfaced rather than folded into the total: an unattributed
+              // capture means thread resolution failed, and consolidation will
+              // not be able to scope the note it produces.
+              <span className="ml-1 text-amber-500">
+                · {dailySummary.unattributed} unattributed
+              </span>
+            ) : null}
+          </div>
+        ) : tab === "notes" ? (
           <div className="flex flex-col gap-2 border-b border-border/60 p-2">
             <input
               type="search"
@@ -201,7 +237,31 @@ export function MemoryView() {
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {tab === "notes" ? (
+          {tab === "daily" ? (
+            dailyEntries.length === 0 ? (
+              <EmptyState message="Nothing captured since the last consolidation." />
+            ) : (
+              <ul>
+                {dailyEntries.map((entry) => (
+                  <li
+                    key={dailyEntryKey(entry)}
+                    className="border-b border-border/40 px-3 py-2 last:border-b-0"
+                  >
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      {entry.capturedAt}
+                    </p>
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      {entry.projectSegment ?? "unattributed"}
+                      {entry.threadId ? ` · ${entry.threadId}` : ""}
+                    </p>
+                    {/* Plain text, so a `[redacted:...]` marker reads as
+                        something removed rather than as a typo. */}
+                    <p className="mt-1 whitespace-pre-wrap text-sm">{entry.body}</p>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : tab === "notes" ? (
             visibleNotes.length === 0 ? (
               <EmptyState
                 message={
@@ -271,7 +331,28 @@ export function MemoryView() {
       </aside>
 
       <section className="min-w-0 flex-1 overflow-y-auto p-6">
-        {tab === "notes" ? (
+        {tab === "daily" ? (
+          dailyEntries.length === 0 ? (
+            <EmptyState message="Nothing captured since the last consolidation. Observations land here first, then Consolidate promotes them into notes." />
+          ) : (
+            <article className="flex max-w-3xl flex-col gap-3">
+              <header className="flex flex-col gap-1">
+                <h1 className="text-lg font-semibold">Daily capture buffer</h1>
+                <p className="text-xs text-muted-foreground">
+                  Read-only. Consolidation promotes these into notes and clears the buffer.
+                  {redactionCount > 0
+                    ? ` ${redactionCount} secret${redactionCount === 1 ? "" : "s"} stripped on write.`
+                    : ""}
+                </p>
+              </header>
+              {/* The raw file, so what is on disk is exactly what is shown --
+                  including redaction markers and any hand edits. */}
+              <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 p-4 font-mono text-xs leading-relaxed">
+                {dailyContents}
+              </pre>
+            </article>
+          )
+        ) : tab === "notes" ? (
           note === null ? (
             <EmptyState message="Select a note." />
           ) : (

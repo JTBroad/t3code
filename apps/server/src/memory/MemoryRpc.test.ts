@@ -11,8 +11,10 @@ import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { writeArtifact } from "./ArtifactStore.ts";
+import { appendDailyEntry, clearDaily } from "./DailyStore.ts";
 import {
   memoryConsolidate,
+  memoryReadDaily,
   memoryGetArtifact,
   memoryGetNote,
   memoryListArtifacts,
@@ -107,6 +109,9 @@ const setup = Effect.fn(function* () {
   // resolved roots exist so handlers are exercised against a real directory.
   yield* fs.makeDirectory(config.memoryDir, { recursive: true });
   yield* fs.makeDirectory(config.driveDir, { recursive: true });
+  // The layer derives one memory root for the whole file, so the buffer has to
+  // be reset per test or captures leak between cases.
+  yield* clearDaily({ memoryRoot: config.memoryDir });
   return { memoryRoot: config.memoryDir, driveRoot: config.driveDir, settings };
 });
 
@@ -264,6 +269,66 @@ describe("read handlers", () => {
           "t3code-a41f2c/new.md",
           "t3code-a41f2c/old.md",
         ]);
+      }),
+    );
+  });
+});
+
+describe("daily handler", () => {
+  layer((it) => {
+    it.effect("returns an empty buffer without failing", () =>
+      Effect.gen(function* () {
+        yield* setup();
+
+        const result = yield* memoryReadDaily();
+
+        expect(result.entries).toEqual([]);
+      }),
+    );
+
+    it.effect("parses provenance so the client need not know the header format", () =>
+      Effect.gen(function* () {
+        const { memoryRoot } = yield* setup();
+        yield* appendDailyEntry({
+          memoryRoot,
+          body: "Prefers guarded migrations.",
+          provenance: {
+            capturedAt: "2026-08-01T12:00:00Z",
+            projectSegment: "t3code-a41f2c",
+            threadId: "th_1",
+          },
+        });
+
+        const result = yield* memoryReadDaily();
+
+        expect(result.entries).toHaveLength(1);
+        expect(result.entries[0]?.projectSegment).toBe("t3code-a41f2c");
+        expect(result.entries[0]?.threadId).toBe("th_1");
+        expect(result.entries[0]?.body).toContain("Prefers guarded migrations.");
+        // The raw text ships too, so the UI can show exactly what is on disk.
+        expect(result.contents).toContain("t3code-a41f2c");
+      }),
+    );
+
+    it.effect("shows the redaction marker and never the secret", () =>
+      Effect.gen(function* () {
+        const { memoryRoot } = yield* setup();
+        yield* appendDailyEntry({
+          memoryRoot,
+          body: `token ghp_${"x".repeat(36)} here`,
+          provenance: {
+            capturedAt: "2026-08-01T12:00:00Z",
+            projectSegment: null,
+            threadId: "th_1",
+          },
+        });
+
+        const result = yield* memoryReadDaily();
+
+        expect(result.contents).toContain("[redacted:");
+        expect(result.contents).not.toContain("ghp_xxxx");
+        // A capture with no resolvable project is still readable.
+        expect(result.entries[0]?.projectSegment).toBeNull();
       }),
     );
   });

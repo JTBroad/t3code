@@ -1406,6 +1406,10 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.memoryConsolidate, MemoryRpc.memoryConsolidate(), {
             "rpc.aggregate": "memory",
           }),
+        [WS_METHODS.memoryReadDaily]: (_input) =>
+          observeRpcEffect(WS_METHODS.memoryReadDaily, MemoryRpc.memoryReadDaily(), {
+            "rpc.aggregate": "memory",
+          }),
         [WS_METHODS.memoryListNotes]: (input) =>
           observeRpcEffect(WS_METHODS.memoryListNotes, MemoryRpc.memoryListNotes(input), {
             "rpc.aggregate": "memory",

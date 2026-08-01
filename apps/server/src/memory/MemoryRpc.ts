@@ -21,12 +21,14 @@ import {
   type MemoryGetNoteResult,
   type MemoryListArtifactsResult,
   type MemoryListNotesResult,
+  type MemoryReadDailyResult,
 } from "@t3tools/contracts";
 
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { getArtifact, listArtifacts, notesCiting, type ArtifactRecord } from "./ArtifactStore.ts";
-import { runConsolidation } from "./Consolidation.ts";
+import { parseDailyEntries, runConsolidation } from "./Consolidation.ts";
+import { readDaily } from "./DailyStore.ts";
 import { resolveMemoryRoot } from "./MemoryPaths.ts";
 import {
   backlinksFor,
@@ -123,6 +125,28 @@ export const memoryConsolidate = Effect.fn("memory.rpc.consolidate")(function* (
         }
       : { kind: outcome.kind }
   ) satisfies MemoryConsolidateResult;
+});
+
+/**
+ * Read the short-term capture buffer.
+ *
+ * Returns the raw text alongside the parsed entries: the text keeps redaction
+ * markers exactly as written, and the entries save the client re-implementing
+ * the provenance header format just to count or group them.
+ */
+export const memoryReadDaily = Effect.fn("memory.rpc.readDaily")(function* () {
+  const memoryRoot = yield* memoryRootFor();
+  const contents = yield* asOperationError("memory.readDaily", readDaily({ memoryRoot }));
+
+  return {
+    contents,
+    entries: parseDailyEntries(contents).map((entry) => ({
+      capturedAt: entry.capturedAt,
+      projectSegment: entry.projectSegment,
+      threadId: entry.threadId,
+      body: entry.body,
+    })),
+  } satisfies MemoryReadDailyResult;
 });
 
 export const memoryListNotes = Effect.fn("memory.rpc.listNotes")(function* (input: {

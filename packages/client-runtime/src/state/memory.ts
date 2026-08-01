@@ -21,6 +21,11 @@ export function createMemoryEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
   return {
+    daily: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:memory:daily",
+      tag: WS_METHODS.memoryReadDaily,
+      staleTimeMs: MEMORY_LIST_STALE_TIME_MS,
+    }),
     notes: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:memory:notes",
       tag: WS_METHODS.memoryListNotes,

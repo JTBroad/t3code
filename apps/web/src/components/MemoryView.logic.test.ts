@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { DriveArtifact, MemoryNoteSummary } from "@t3tools/contracts";
+import type { DriveArtifact, MemoryDailyEntry, MemoryNoteSummary } from "@t3tools/contracts";
 
 import {
+  countRedactions,
+  DEFAULT_MEMORY_TAB,
+  MEMORY_TABS,
+  sortDailyEntries,
+  summarizeDaily,
   collectProjectSegments,
   collectTags,
   EMPTY_NOTE_FILTERS,
@@ -148,5 +153,83 @@ describe("formatByteSize", () => {
   it("does not render a nonsense size for bad input", () => {
     expect(formatByteSize(-1)).toBe("—");
     expect(formatByteSize(Number.NaN)).toBe("—");
+  });
+});
+
+const dailyEntry = (overrides: Partial<MemoryDailyEntry> = {}): MemoryDailyEntry => ({
+  capturedAt: "2026-08-01T12:00:00Z",
+  projectSegment: "t3code-a41f2c",
+  threadId: "th_1",
+  body: "An observation.",
+  ...overrides,
+});
+
+describe("tab order", () => {
+  it("follows the pipeline: captured, promoted, produced", () => {
+    expect(MEMORY_TABS.map((tab) => tab.id)).toEqual(["daily", "notes", "drive"]);
+  });
+
+  it("opens on Notes, which is the tab that accumulates", () => {
+    // Daily is empty right after every consolidation, so opening there would
+    // routinely greet the user with nothing.
+    expect(DEFAULT_MEMORY_TAB).toBe("notes");
+  });
+});
+
+describe("sortDailyEntries", () => {
+  it("puts the newest capture first", () => {
+    const entries = [
+      dailyEntry({ capturedAt: "2026-08-01T09:00:00Z", body: "older" }),
+      dailyEntry({ capturedAt: "2026-08-01T17:00:00Z", body: "newer" }),
+    ];
+
+    expect(sortDailyEntries(entries)[0]?.body).toBe("newer");
+  });
+
+  it("does not mutate its input", () => {
+    const entries = [
+      dailyEntry({ capturedAt: "2026-08-01T09:00:00Z" }),
+      dailyEntry({ capturedAt: "2026-08-01T17:00:00Z" }),
+    ];
+    sortDailyEntries(entries);
+
+    expect(entries[0]?.capturedAt).toBe("2026-08-01T09:00:00Z");
+  });
+});
+
+describe("summarizeDaily", () => {
+  it("counts entries and distinct projects", () => {
+    const summary = summarizeDaily([
+      dailyEntry(),
+      dailyEntry({ projectSegment: "api-b72e44" }),
+      dailyEntry(),
+    ]);
+
+    expect(summary.total).toBe(3);
+    expect(summary.projects).toBe(2);
+  });
+
+  it("calls out captures whose project could not be resolved", () => {
+    // An unattributed entry means thread resolution failed, which is worth
+    // noticing rather than folding silently into the total.
+    const summary = summarizeDaily([dailyEntry(), dailyEntry({ projectSegment: null })]);
+
+    expect(summary.unattributed).toBe(1);
+    expect(summary.projects).toBe(1);
+  });
+
+  it("is all zeroes for an empty buffer", () => {
+    expect(summarizeDaily([])).toEqual({ total: 0, projects: 0, unattributed: 0 });
+  });
+});
+
+describe("countRedactions", () => {
+  it("counts markers so a stripped secret is visible, never the value", () => {
+    expect(countRedactions("token [redacted:github-token] and [redacted:high-entropy]")).toBe(2);
+  });
+
+  it("is zero for ordinary prose", () => {
+    expect(countRedactions("nothing was removed here")).toBe(0);
+    expect(countRedactions("")).toBe(0);
   });
 });

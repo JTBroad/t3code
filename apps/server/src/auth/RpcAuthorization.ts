@@ -57,6 +57,7 @@ export const RPC_REQUIRED_SCOPES = {
   // Consolidation mutates the store (it promotes notes and clears the buffer),
   // so it operates; the four read endpoints only read.
   [WS_METHODS.memoryConsolidate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.memoryReadDaily]: AuthOrchestrationReadScope,
   [WS_METHODS.memoryListNotes]: AuthOrchestrationReadScope,
   [WS_METHODS.memoryGetNote]: AuthOrchestrationReadScope,
   [WS_METHODS.memoryListArtifacts]: AuthOrchestrationReadScope,

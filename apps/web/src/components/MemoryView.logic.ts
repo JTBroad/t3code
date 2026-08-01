@@ -4,9 +4,29 @@
  *
  * @module MemoryView.logic
  */
-import type { DriveArtifact, MemoryNoteSummary } from "@t3tools/contracts";
+import type { DriveArtifact, MemoryDailyEntry, MemoryNoteSummary } from "@t3tools/contracts";
 
-export type MemoryTab = "notes" | "drive";
+export type MemoryTab = "daily" | "notes" | "drive";
+
+/**
+ * Tabs follow the pipeline: captured, then promoted, then produced.
+ *
+ * Reading left to right is the lifecycle of an observation, which is the only
+ * ordering that explains why the three sit together.
+ */
+export const MEMORY_TABS: ReadonlyArray<{ readonly id: MemoryTab; readonly label: string }> = [
+  { id: "daily", label: "Daily" },
+  { id: "notes", label: "Notes" },
+  { id: "drive", label: "Drive" },
+];
+
+/**
+ * Notes, not Daily, is where the workspace opens.
+ *
+ * Daily is empty immediately after every consolidation, so opening there would
+ * routinely greet you with nothing; Notes is the content that accumulates.
+ */
+export const DEFAULT_MEMORY_TAB: MemoryTab = "notes";
 
 export interface NoteFilters {
   readonly scope: string | null;
@@ -105,4 +125,53 @@ export function formatByteSize(bytes: number): string {
   }
   const rounded = unit === 0 ? value : Math.round(value * 10) / 10;
   return `${rounded} ${BYTE_UNITS[unit]}`;
+}
+
+/** Newest first: the last thing captured is the most likely thing being checked. */
+export function sortDailyEntries(
+  entries: ReadonlyArray<MemoryDailyEntry>,
+): ReadonlyArray<MemoryDailyEntry> {
+  return [...entries].sort((left, right) => right.capturedAt.localeCompare(left.capturedAt));
+}
+
+/**
+ * Summarise the buffer for the tab label and empty state.
+ *
+ * `unattributed` is called out separately because an entry with no project is a
+ * capture whose thread could not be resolved -- worth noticing rather than
+ * silently folding into the total.
+ */
+export function summarizeDaily(entries: ReadonlyArray<MemoryDailyEntry>): {
+  readonly total: number;
+  readonly projects: number;
+  readonly unattributed: number;
+} {
+  const projects = new Set(
+    entries
+      .map((entry) => entry.projectSegment)
+      .filter((segment): segment is string => segment !== null),
+  );
+  return {
+    total: entries.length,
+    projects: projects.size,
+    unattributed: entries.filter((entry) => entry.projectSegment === null).length,
+  };
+}
+
+/** Redaction markers left by the write-time redactor, e.g. `[redacted:github-token]`. */
+const REDACTION_MARKER = /\[redacted:[a-z0-9-]+\]/gi;
+
+export function countRedactions(text: string): number {
+  return text.match(REDACTION_MARKER)?.length ?? 0;
+}
+
+/**
+ * Stable list key for a daily entry.
+ *
+ * Entries carry no id -- they are lines in a file, not rows. Concurrent appends
+ * can share a timestamp, so the body is part of the key rather than relying on
+ * `capturedAt` alone.
+ */
+export function dailyEntryKey(entry: MemoryDailyEntry): string {
+  return `${entry.capturedAt}|${entry.threadId ?? ""}|${entry.body}`;
 }

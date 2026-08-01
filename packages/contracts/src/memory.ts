@@ -58,6 +58,39 @@ export type MemoryConsolidateResult = typeof MemoryConsolidateResult.Type;
 export const MemoryConsolidateInput = Schema.Struct({});
 export type MemoryConsolidateInput = typeof MemoryConsolidateInput.Type;
 
+/* ── daily buffer ───────────────────────────────────────────────────────── */
+
+export const MemoryReadDailyInput = Schema.Struct({});
+export type MemoryReadDailyInput = typeof MemoryReadDailyInput.Type;
+
+/**
+ * One captured observation, still awaiting promotion.
+ *
+ * Parsed server-side rather than shipping raw markdown for the client to split:
+ * the provenance header format is a storage detail, and two parsers for one
+ * format drift.
+ */
+export const MemoryDailyEntry = Schema.Struct({
+  capturedAt: Schema.String,
+  projectSegment: Schema.NullOr(Schema.String),
+  threadId: Schema.NullOr(Schema.String),
+  body: Schema.String,
+});
+export type MemoryDailyEntry = typeof MemoryDailyEntry.Type;
+
+/**
+ * The short-term capture buffer.
+ *
+ * `contents` is the raw file so redaction markers stay visible exactly as
+ * written; `entries` is the same text parsed, so the UI does not have to
+ * re-implement the header format to count or group them.
+ */
+export const MemoryReadDailyResult = Schema.Struct({
+  contents: Schema.String,
+  entries: Schema.Array(MemoryDailyEntry),
+});
+export type MemoryReadDailyResult = typeof MemoryReadDailyResult.Type;
+
 /* ── notes ──────────────────────────────────────────────────────────────── */
 
 export const MemoryNoteLink = Schema.Struct({
