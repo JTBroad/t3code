@@ -32,6 +32,10 @@ import {
   toastManager,
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import {
+  MACOS_TRAFFIC_LIGHTS_TOP_INSET,
+  useMacosWindowControlsOverlay,
+} from "../hooks/useMacosWindowControls";
 import { useClientSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -92,6 +96,7 @@ function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
+  const hasMacosWindowControls = useMacosWindowControlsOverlay();
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -139,7 +144,19 @@ function RootRouteView() {
         <WorkspaceRail />
         <div className="min-w-0 flex-1">
           {isMemoryWorkspacePath(pathname) ? (
-            <Outlet />
+            // AppSidebarLayout is what normally reserves the title bar strip,
+            // and this workspace renders without it -- so its own content
+            // starts at y=0 and the window controls land on top of it. Applied
+            // here rather than inside the workspace so any future one rendered
+            // without the sidebar layout inherits the same clearance.
+            <div
+              className="h-full min-h-0"
+              style={
+                hasMacosWindowControls ? { paddingTop: MACOS_TRAFFIC_LIGHTS_TOP_INSET } : undefined
+              }
+            >
+              <Outlet />
+            </div>
           ) : (
             <AppSidebarLayout>
               <Outlet />
