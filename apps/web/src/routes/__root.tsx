@@ -8,12 +8,16 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
-import { isMemoryWorkspacePath, WorkspaceRail } from "../components/WorkspaceRail";
+import {
+  isMemoryWorkspacePath,
+  WORKSPACE_RAIL_WIDTH,
+  WorkspaceRail,
+} from "../components/WorkspaceRail";
 import { CommandPalette } from "../components/CommandPalette";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
@@ -124,8 +128,14 @@ function RootRouteView() {
       {/* The sidebar primitive positions its panel `fixed left-0`, which
           ignores this flex row and would sit on top of the rail. Offsetting it
           by the rail width here keeps the override scoped to this shell rather
-          than changing the shared primitive for every other consumer. */}
-      <div className="flex h-screen min-h-0 w-full [&_[data-slot=sidebar-container]]:left-12">
+          than changing the shared primitive for every other consumer.
+          `--workspace-rail-width` tells window-chrome insets measured from the
+          window edge that the sidebar no longer starts there. */}
+      <div
+        data-workspace-rail=""
+        style={{ "--workspace-rail-width": WORKSPACE_RAIL_WIDTH } as CSSProperties}
+        className="flex h-screen min-h-0 w-full [&_[data-slot=sidebar-container]]:left-(--workspace-rail-width)"
+      >
         <WorkspaceRail />
         <div className="min-w-0 flex-1">
           {isMemoryWorkspacePath(pathname) ? (

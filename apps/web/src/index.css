@@ -97,11 +97,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --desktop-window-right-resize-inset: 0px;
   --workspace-topbar-height: 52px;
   --workspace-controls-top: 0px;
-  --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
+  --workspace-controls-base-left: calc(env(safe-area-inset-left) + 0.75rem);
+  --workspace-controls-left: var(--workspace-controls-base-left);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
   --workspace-native-controls-inset: 0px;
   --workspace-titlebar-control-size: 1.75rem;
   --workspace-titlebar-control-gap: 0.75rem;
+  /* Width of the workspace rail to the left of the sidebar. Zero wherever the
+     rail is not rendered; the shell that renders it overrides both this and
+     `--workspace-controls-left` together (see `[data-workspace-rail]`). */
+  --workspace-rail-width: 0px;
 }
 
 .dark {
@@ -111,17 +116,31 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --glass-saturation: 1.08;
 }
 
+/* Chrome anchored to the window's left edge -- the sidebar toggle, and on
+   macOS the traffic lights -- lands on top of the rail unless it is pushed
+   past it. Declared on the shell element itself so `--workspace-rail-width`
+   resolves to the shell's value: a custom property substitutes var() where it
+   is declared, so putting this on :root would always read the 0px default. */
+[data-workspace-rail] {
+  --workspace-controls-left: calc(
+    var(--workspace-controls-base-left) + var(--workspace-rail-width)
+  );
+}
+
 [data-slot="sidebar-wrapper"] {
+  /* `--workspace-controls-left` is measured from the window edge, but this is
+     consumed as a margin inside the sidebar, so the rail width comes back off. */
   --workspace-titlebar-content-left: calc(
-    var(--workspace-controls-left) + var(--workspace-titlebar-control-size) +
-      var(--workspace-titlebar-control-gap)
+    var(--workspace-controls-left) - var(--workspace-rail-width) +
+      var(--workspace-titlebar-control-size) + var(--workspace-titlebar-control-gap)
   );
 }
 
 .wco {
   --workspace-topbar-height: env(titlebar-area-height, 52px);
   --workspace-controls-top: env(titlebar-area-y, 0px);
-  --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
+  --workspace-controls-base-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
+  --workspace-controls-left: var(--workspace-controls-base-left);
   --workspace-controls-right: calc(
     100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + 0.75rem
   );
