@@ -10,12 +10,19 @@
  */
 import { Link, useLocation } from "@tanstack/react-router";
 import { BrainIcon, MessagesSquareIcon, type LucideIcon } from "lucide-react";
+import { useEffect } from "react";
 
 import {
   MACOS_TRAFFIC_LIGHTS_TOP_INSET,
   useMacosWindowControlsOverlay,
 } from "../hooks/useMacosWindowControls";
 import { cn } from "../lib/utils";
+import {
+  isMemoryWorkspacePath,
+  MEMORY_WORKSPACE_ROOT,
+  rememberThreadsPath,
+  resolveThreadsHref,
+} from "./WorkspaceRail.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
@@ -28,20 +35,17 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 export const WORKSPACE_RAIL_WIDTH = "48px";
 
 interface WorkspaceRailEntry {
-  readonly to: string;
+  readonly key: "threads" | "memory";
   readonly label: string;
   readonly icon: LucideIcon;
 }
 
 const WORKSPACES: ReadonlyArray<WorkspaceRailEntry> = [
-  { to: "/", label: "Threads", icon: MessagesSquareIcon },
-  { to: "/memory", label: "Memory", icon: BrainIcon },
+  { key: "threads", label: "Threads", icon: MessagesSquareIcon },
+  { key: "memory", label: "Memory", icon: BrainIcon },
 ];
 
-/** Threads owns every route that is not Memory, including settings. */
-export function isMemoryWorkspacePath(pathname: string): boolean {
-  return pathname === "/memory" || pathname.startsWith("/memory/");
-}
+export { isMemoryWorkspacePath } from "./WorkspaceRail.logic";
 
 export function WorkspaceRail() {
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -51,6 +55,14 @@ export function WorkspaceRail() {
   // under them and cannot be clicked at all.
   const hasMacosWindowControls = useMacosWindowControlsOverlay();
 
+  // Recorded on every Threads-workspace route so the button can come back to
+  // the thread that was open rather than the new-thread starter at "/".
+  useEffect(() => {
+    rememberThreadsPath(pathname);
+  }, [pathname]);
+
+  const threadsHref = resolveThreadsHref(pathname);
+
   return (
     <nav
       aria-label="Workspaces"
@@ -58,14 +70,16 @@ export function WorkspaceRail() {
       className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border/60 bg-sidebar/40 py-2"
     >
       {WORKSPACES.map((workspace) => {
-        const isActive = workspace.to === "/memory" ? memoryActive : !memoryActive;
+        const isMemory = workspace.key === "memory";
+        const isActive = isMemory ? memoryActive : !memoryActive;
+        const to = isMemory ? MEMORY_WORKSPACE_ROOT : threadsHref;
         const Icon = workspace.icon;
         return (
-          <Tooltip key={workspace.to}>
+          <Tooltip key={workspace.key}>
             <TooltipTrigger
               render={
                 <Link
-                  to={workspace.to}
+                  to={to}
                   aria-label={workspace.label}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
