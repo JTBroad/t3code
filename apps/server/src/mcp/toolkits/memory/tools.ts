@@ -112,8 +112,49 @@ export const MemorySearchTool = Tool.make("memory_search", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
+/**
+ * Note the absence of a `projectSegment` parameter here too.
+ *
+ * The bucket an artifact lands in is derived from the invocation scope, for the
+ * same reason capture provenance is: a model that can choose the folder can
+ * write into another project's drive.
+ */
+export const DriveWriteArtifactInput = Schema.Struct({
+  relativePath: Schema.String.pipe(
+    Schema.annotate({
+      description:
+        "Path within this project's drive folder, e.g. '2026-08-01/review-notes.md'. Must not escape the folder.",
+    }),
+  ),
+  contents: Schema.String.pipe(Schema.annotate({ description: "Full file contents to write." })),
+  kind: Schema.optional(
+    Schema.String.pipe(
+      Schema.annotate({ description: "What this is: 'report', 'export', 'scratch'." }),
+    ),
+  ),
+});
+
+export const DriveWriteArtifactResult = Schema.Struct({
+  id: Schema.String,
+  relativePath: Schema.String,
+  byteSize: Schema.Number,
+});
+
+export const DriveWriteArtifactTool = Tool.make("drive_write_artifact", {
+  description:
+    "Write a generated file that should not be committed to the repository -- a report, an export, scratch output. The file is stored outside every workspace and indexed so later notes can cite it. Use instead of writing throwaway files into the user's project.",
+  parameters: DriveWriteArtifactInput,
+  success: DriveWriteArtifactResult,
+  failure: McpCapabilityUnavailableError,
+  dependencies,
+})
+  .annotate(Tool.Title, "Write a drive artifact")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+
 export const MemoryToolkit = Toolkit.make(
   MemoryAppendDailyTool,
   MemoryReadDailyTool,
   MemorySearchTool,
+  DriveWriteArtifactTool,
 );

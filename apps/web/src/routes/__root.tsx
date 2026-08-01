@@ -13,6 +13,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { isMemoryWorkspacePath, WorkspaceRail } from "../components/WorkspaceRail";
 import { CommandPalette } from "../components/CommandPalette";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
@@ -115,11 +116,23 @@ function RootRouteView() {
     );
   }
 
+  // The rail sits outside AppSidebarLayout so each workspace keeps its own
+  // sidebar. Memory brings its own, so it renders without the thread sidebar;
+  // everything else -- including settings -- stays in the Threads workspace.
   const appShell = (
     <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
+      <div className="flex h-screen min-h-0 w-full">
+        <WorkspaceRail />
+        <div className="min-w-0 flex-1">
+          {isMemoryWorkspacePath(pathname) ? (
+            <Outlet />
+          ) : (
+            <AppSidebarLayout>
+              <Outlet />
+            </AppSidebarLayout>
+          )}
+        </div>
+      </div>
     </CommandPalette>
   );
 

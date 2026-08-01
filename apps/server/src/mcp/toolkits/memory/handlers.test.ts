@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import { Tool } from "effect/unstable/ai";
 
 import {
+  DriveWriteArtifactTool,
   MemoryAppendDailyTool,
   MemoryReadDailyTool,
   MemorySearchTool,
@@ -13,8 +14,9 @@ const parameterKeys = (tool: { readonly parametersSchema: unknown }): ReadonlyAr
   Object.keys((tool.parametersSchema as { fields?: Record<string, unknown> }).fields ?? {});
 
 describe("memory toolkit surface", () => {
-  it("exposes exactly the three memory tools", () => {
+  it("exposes exactly the memory and drive tools", () => {
     expect(Object.keys(MemoryToolkit.tools).sort()).toEqual([
+      "drive_write_artifact",
       "memory_append_daily",
       "memory_read_daily",
       "memory_search",
@@ -47,5 +49,23 @@ describe("memory toolkit surface", () => {
 
   it("keeps search filters optional so an unfiltered search is valid", () => {
     expect([...parameterKeys(MemorySearchTool)].sort()).toEqual(["limit", "scope", "tag"]);
+  });
+
+  it("lets no tool choose the project bucket it writes into", () => {
+    // Same anti-spoofing property as capture: a model that picks the folder can
+    // write into another project's drive.
+    expect([...parameterKeys(DriveWriteArtifactTool)].sort()).toEqual([
+      "contents",
+      "kind",
+      "relativePath",
+    ]);
+    expect(parameterKeys(DriveWriteArtifactTool)).not.toContain("projectSegment");
+  });
+
+  it("marks the artifact write as mutating but not destructive", () => {
+    // It creates a new file; it does not overwrite a live path, because the
+    // partial unique index rejects that until the old row is archived.
+    expect(Context.get(DriveWriteArtifactTool.annotations, Tool.Readonly)).toBe(false);
+    expect(Context.get(DriveWriteArtifactTool.annotations, Tool.Destructive)).toBe(false);
   });
 });

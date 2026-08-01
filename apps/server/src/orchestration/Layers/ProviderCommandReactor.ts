@@ -27,6 +27,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { buildBriefForThreadOrEmpty, prependBrief } from "../../memory/BriefInjection.ts";
+import { countContinuitySignals } from "../../memory/ContinuityBrief.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -306,6 +307,45 @@ const make = Effect.gen(function* () {
               ...(input.requestId ? { requestId: input.requestId } : {}),
             },
             turnId: input.turnId,
+            createdAt: input.createdAt,
+          },
+          createdAt: input.createdAt,
+        }),
+      ),
+    );
+
+  /**
+   * Record that a continuity brief was injected.
+   *
+   * This is the invariant the whole memory design rests on: nothing reaches a
+   * prompt from the memory store without a corresponding visible activity in
+   * the thread. Silent prompt injection is the trust failure worth avoiding
+   * even at the cost of a little noise.
+   */
+  const appendContinuityBriefActivity = (input: {
+    readonly threadId: ThreadId;
+    readonly brief: string;
+    readonly createdAt: string;
+  }) =>
+    Effect.all({
+      commandId: serverCommandId("continuity-brief-activity"),
+      eventId: serverEventId(),
+    }).pipe(
+      Effect.flatMap(({ commandId, eventId }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone: "info",
+            kind: "memory.continuity-brief.injected",
+            summary: `Memory brief · ${countContinuitySignals(input.brief)} signals`,
+            // The exact injected text, so the activity can be expanded to see
+            // precisely what the model was given. A summary alone would not
+            // settle "why did it say that?".
+            payload: { brief: input.brief },
+            turnId: null,
             createdAt: input.createdAt,
           },
           createdAt: input.createdAt,
@@ -1058,12 +1098,28 @@ const make = Effect.gen(function* () {
     // session, and re-sending it every turn is the "always fires" failure that
     // trains a model to skip it. Unlike the forked work above this has to be
     // sequential -- it changes the text the turn is built from.
-    const messageTextWithBrief = isFirstUserMessageTurn
-      ? prependBrief(
-          yield* buildBriefForThreadOrEmpty({ threadId: event.payload.threadId }),
-          message.text,
-        )
-      : message.text;
+    const continuityBrief = isFirstUserMessageTurn
+      ? yield* buildBriefForThreadOrEmpty({ threadId: event.payload.threadId })
+      : "";
+    const messageTextWithBrief = prependBrief(continuityBrief, message.text);
+
+    if (continuityBrief.trim().length > 0) {
+      // Best-effort: a failed activity must not block the turn, but it does
+      // mean the injection went unrecorded, so it is logged rather than
+      // swallowed silently.
+      yield* appendContinuityBriefActivity({
+        threadId: event.payload.threadId,
+        brief: continuityBrief,
+        createdAt: event.payload.createdAt,
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("continuity brief injected without a thread activity", {
+            threadId: event.payload.threadId,
+            cause,
+          }),
+        ),
+      );
+    }
 
     const handleTurnStartFailure = (cause: Cause.Cause<unknown>) => {
       if (Cause.hasInterruptsOnly(cause)) {

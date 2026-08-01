@@ -94,6 +94,17 @@ export function composeBrief(input: BriefInput): string {
   return clampToBudget(`# Continuity brief\n\n${sections.join("\n\n")}`, BRIEF_TOTAL_BUDGET);
 }
 
+/**
+ * How many distinct signals a brief carries.
+ *
+ * Used to title the thread activity ("Memory brief · 3 signals"). Counts the
+ * section headings rather than lines, so a long daily buffer does not read as
+ * dozens of separate signals when it is one section.
+ */
+export function countContinuitySignals(brief: string): number {
+  return brief.split("\n").filter((line) => line.startsWith("## ")).length;
+}
+
 export interface RankedNote {
   readonly id: string;
   readonly title: string;

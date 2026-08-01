@@ -15,8 +15,9 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import { ServerConfig } from "../../../config.ts";
+import { writeArtifact } from "../../../memory/ArtifactStore.ts";
 import { appendDailyEntry, readDaily } from "../../../memory/DailyStore.ts";
-import { resolveMemoryRoot } from "../../../memory/MemoryPaths.ts";
+import { resolveDriveRoot, resolveMemoryRoot } from "../../../memory/MemoryPaths.ts";
 import { listNotes } from "../../../memory/NoteStore.ts";
 import { resolveProjectForThread } from "../../../memory/ProjectResolution.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
@@ -101,6 +102,41 @@ const handlers = {
         tags: parseTags(row.tags),
         modifiedAt: row.modified_at,
       })),
+    };
+  }),
+  drive_write_artifact: Effect.fn("drive_write_artifact")(function* (input: {
+    readonly relativePath: string;
+    readonly contents: string;
+    readonly kind?: string | undefined;
+  }) {
+    const scope = yield* McpInvocationContext.requireMcpCapability("memory");
+    const settings = yield* dieOnInfrastructureFailure((yield* ServerSettingsService).getSettings);
+    const config = yield* ServerConfig;
+    const driveRoot = resolveDriveRoot(settings, config);
+
+    const project = yield* resolveProjectForThread(scope.threadId).pipe(
+      Effect.orElseSucceed(() => null),
+    );
+
+    // Unlike capture, a rejected path here is a real failure the model should
+    // see: it asked to write a specific file and no file exists afterwards.
+    const written = yield* dieOnInfrastructureFailure(
+      writeArtifact({
+        driveRoot,
+        projectSegment: project?.projectSegment ?? null,
+        repositoryPath: project?.repositoryPath ?? null,
+        relativePath: input.relativePath,
+        contents: input.contents,
+        kind: input.kind ?? "scratch",
+        threadId: scope.threadId,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
+      }),
+    );
+
+    return {
+      id: written.id,
+      relativePath: written.relativePath,
+      byteSize: written.byteSize,
     };
   }),
 } satisfies Parameters<typeof MemoryToolkit.toLayer>[0];

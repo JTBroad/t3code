@@ -4,6 +4,7 @@ import {
   BRIEF_TOTAL_BUDGET,
   clampToBudget,
   composeBrief,
+  countContinuitySignals,
   formatThemes,
   rankNotes,
   SECTION_BUDGETS,
@@ -120,5 +121,21 @@ describe("ranking", () => {
         { id: "n1", title: "Guard migrations", scope: "global", projectSegment: null },
       ]),
     ).toBe("- Guard migrations");
+  });
+});
+
+describe("signal count", () => {
+  it("counts sections, not lines", () => {
+    // A long daily buffer is one signal, not one per line.
+    const brief = composeBrief({
+      daily: "line one\nline two\nline three",
+      themes: "- a\n- b",
+    });
+
+    expect(countContinuitySignals(brief)).toBe(2);
+  });
+
+  it("is zero for an empty brief", () => {
+    expect(countContinuitySignals("")).toBe(0);
   });
 });
