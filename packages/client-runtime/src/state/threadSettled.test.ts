@@ -11,6 +11,7 @@ import {
   canSettle,
   effectiveSettled,
   hasQueuedTurnStart,
+  resolveThreadChangeRequestState,
   threadLastActivityAt,
   type ChangeRequestStateLike,
 } from "./threadSettled.ts";
@@ -435,5 +436,87 @@ describe("canSettle", () => {
     });
     expect(canSettle(blocked, { now: NOW })).toBe(false);
     expect(effectiveSettled(blocked, { now: NOW, autoSettleAfterDays: 3 })).toBe(false);
+  });
+});
+
+describe("resolveThreadChangeRequestState", () => {
+  it("uses the inferred PR in auto mode and ignores any link", () => {
+    expect(
+      resolveThreadChangeRequestState({
+        mode: "auto",
+        linkSupported: true,
+        linkedPullRequest: { state: "open" },
+        inferredState: "merged",
+      }),
+    ).toBe("merged");
+  });
+
+  it("uses only the linked PR in manual mode", () => {
+    expect(
+      resolveThreadChangeRequestState({
+        mode: "manual",
+        linkSupported: true,
+        linkedPullRequest: { state: "merged" },
+        inferredState: "open",
+      }),
+    ).toBe("merged");
+  });
+
+  it("reports no PR in manual mode when nothing is linked, whatever the branch matched", () => {
+    // The whole point of manual mode: a branch-derived merged PR must not
+    // settle a thread the user never linked.
+    expect(
+      resolveThreadChangeRequestState({
+        mode: "manual",
+        linkSupported: true,
+        linkedPullRequest: null,
+        inferredState: "merged",
+      }),
+    ).toBeNull();
+  });
+
+  it("falls back to inference when the server cannot store links", () => {
+    // Version skew: manual mode on a pre-linking server would otherwise leave
+    // every thread permanently PR-less with no way to link one.
+    expect(
+      resolveThreadChangeRequestState({
+        mode: "manual",
+        linkSupported: false,
+        linkedPullRequest: null,
+        inferredState: "merged",
+      }),
+    ).toBe("merged");
+  });
+
+  it("does not settle a thread whose linked PR is still open", () => {
+    const shell = makeShell({ activityAt: STALE });
+    expect(
+      effectiveSettled(shell, {
+        now: NOW,
+        autoSettleAfterDays: 3,
+        changeRequestState: resolveThreadChangeRequestState({
+          mode: "manual",
+          linkSupported: true,
+          linkedPullRequest: { state: "open" },
+          inferredState: null,
+        }),
+      }),
+    ).toBe(false);
+  });
+
+  it("settles a thread whose linked PR merged", () => {
+    const shell = makeShell({ activityAt: FRESH });
+    expect(
+      effectiveSettled(shell, {
+        now: NOW,
+        autoSettleAfterDays: 3,
+        changeRequestState: resolveThreadChangeRequestState({
+          mode: "manual",
+          linkSupported: true,
+          linkedPullRequest: { state: "merged" },
+          inferredState: null,
+        }),
+      }),
+    ).toBe(true);
   });
 });

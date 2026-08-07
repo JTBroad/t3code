@@ -20,7 +20,7 @@ import { ProviderInstanceId } from "./providerInstance.ts";
  * one `requireMcpCapability` checks, this is the one that crosses the wire in
  * errors.
  */
-export const McpCapabilityName = Schema.Literals(["preview", "memory"]);
+export const McpCapabilityName = Schema.Literals(["preview", "memory", "thread"]);
 export type McpCapabilityName = typeof McpCapabilityName.Type;
 
 /** Raised when a session's credential does not grant the capability a tool needs. */

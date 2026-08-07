@@ -4,8 +4,10 @@ import {
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
   ThreadId,
+  ThreadLinkedPullRequest,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -100,6 +102,11 @@ interface ProjectorDefinition {
     attachmentSideEffects: AttachmentSideEffects,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
+
+// The linked PR lands in one JSON text column (migration 041). Encoding
+// through the schema rather than JSON.stringify keeps the written shape tied
+// to the contract that ProjectionSnapshotQuery decodes it back with.
+const encodeLinkedPullRequest = Schema.encodeSync(Schema.fromJsonString(ThreadLinkedPullRequest));
 
 interface AttachmentSideEffects {
   readonly deletedThreadIds: Set<string>;
@@ -613,6 +620,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             snoozedAt: null,
             pinnedAt: null,
             pinOrderKey: null,
+            linkedPullRequest: null,
             titleRegenerationRequestId: null,
             titleRegenerationStartedAt: null,
             latestUserMessageAt: null,
@@ -763,6 +771,36 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             pinOrderKey: event.payload.orderKey,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.pull-request-linked": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            linkedPullRequest: encodeLinkedPullRequest(event.payload.pullRequest),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.pull-request-unlinked": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            linkedPullRequest: null,
             updatedAt: event.payload.updatedAt,
           });
           return;

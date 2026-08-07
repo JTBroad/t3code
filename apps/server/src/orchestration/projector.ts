@@ -26,6 +26,8 @@ import {
   ThreadClearedPayload,
   ThreadPinnedPayload,
   ThreadPinReorderedPayload,
+  ThreadPullRequestLinkedPayload,
+  ThreadPullRequestUnlinkedPayload,
   ThreadSnoozedPayload,
   ThreadUnpinnedPayload,
   ThreadUnarchivedPayload,
@@ -430,6 +432,38 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             pinOrderKey: payload.orderKey,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.pull-request-linked":
+      return decodeForEvent(
+        ThreadPullRequestLinkedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            linkedPullRequest: payload.pullRequest,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.pull-request-unlinked":
+      return decodeForEvent(
+        ThreadPullRequestUnlinkedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            linkedPullRequest: null,
             updatedAt: payload.updatedAt,
           }),
         })),

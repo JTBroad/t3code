@@ -6,7 +6,12 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSettle, canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
-import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type GitResolvedPullRequest,
+  type ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -165,6 +170,12 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const snoozeThreadMutation = useAtomCommand(threadEnvironment.snooze, {
+    reportFailure: false,
+  });
+  const linkPullRequestMutation = useAtomCommand(threadEnvironment.linkPullRequest, {
+    reportFailure: false,
+  });
+  const unlinkPullRequestMutation = useAtomCommand(threadEnvironment.unlinkPullRequest, {
     reportFailure: false,
   });
   const unsnoozeThreadMutation = useAtomCommand(threadEnvironment.unsnooze, {
@@ -550,6 +561,45 @@ export function useThreadActions() {
     [unsettleThreadMutation],
   );
 
+  const linkThreadPullRequest = useCallback(
+    async (
+      target: ScopedThreadRef,
+      input: { pullRequest: GitResolvedPullRequest; cwd: string; linkedBy: "user" | "agent" },
+    ) => {
+      const now = new Date().toISOString();
+      return linkPullRequestMutation({
+        environmentId: target.environmentId,
+        input: {
+          threadId: target.threadId,
+          pullRequest: {
+            number: input.pullRequest.number,
+            url: input.pullRequest.url,
+            title: input.pullRequest.title,
+            headBranch: input.pullRequest.headBranch,
+            baseBranch: input.pullRequest.baseBranch,
+            state: input.pullRequest.state,
+            cwd: input.cwd,
+            // The decider keeps the ORIGINAL linkedAt when re-linking the same
+            // PR, so sending "now" here is safe for refreshes too.
+            linkedAt: now,
+            linkedBy: input.linkedBy,
+            refreshedAt: now,
+          },
+        },
+      });
+    },
+    [linkPullRequestMutation],
+  );
+
+  const unlinkThreadPullRequest = useCallback(
+    async (target: ScopedThreadRef) =>
+      unlinkPullRequestMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId },
+      }),
+    [unlinkPullRequestMutation],
+  );
+
   const pinThread = useCallback(
     async (target: ScopedThreadRef, opts: { orderKey?: string } = {}) => {
       // Version skew: never send the command to a server that predates it.
@@ -723,14 +773,18 @@ export function useThreadActions() {
       pinThread,
       unpinThread,
       reorderPinnedThread,
+      linkThreadPullRequest,
+      unlinkThreadPullRequest,
     }),
     [
       archiveThread,
       clearThread,
       confirmAndDeleteThread,
       deleteThread,
+      linkThreadPullRequest,
       pinThread,
       reorderPinnedThread,
+      unlinkThreadPullRequest,
       settleThread,
       snoozeThread,
       unarchiveThread,

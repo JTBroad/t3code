@@ -862,6 +862,72 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.pull-request.link": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // Idempotent by re-emission (see thread.settle): re-linking the same PR
+      // must stay a silent no-op. Only the identity counts — a refreshed
+      // state/title on the same PR number IS new information and stamps a
+      // fresh updatedAt so the row re-renders (and can auto-settle on merge).
+      const existing = thread.linkedPullRequest ?? null;
+      const unchanged =
+        existing !== null &&
+        existing.number === command.pullRequest.number &&
+        existing.url === command.pullRequest.url &&
+        existing.state === command.pullRequest.state &&
+        existing.title === command.pullRequest.title;
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.pull-request-linked",
+        payload: {
+          threadId: command.threadId,
+          pullRequest: {
+            ...command.pullRequest,
+            // The original attachment time survives a refresh: "linked 3 days
+            // ago" should not reset every time the state is re-read.
+            linkedAt:
+              unchanged || existing?.number === command.pullRequest.number
+                ? (existing?.linkedAt ?? command.pullRequest.linkedAt)
+                : command.pullRequest.linkedAt,
+          },
+          updatedAt: unchanged ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
+    case "thread.pull-request.unlink": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // Idempotent by re-emission (see thread.settle).
+      const alreadyUnlinked = (thread.linkedPullRequest ?? null) === null;
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.pull-request-unlinked",
+        payload: {
+          threadId: command.threadId,
+          updatedAt: alreadyUnlinked ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
     case "thread.meta.update": {
       const thread = yield* requireThread({
         readModel,

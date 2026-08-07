@@ -24,6 +24,7 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
   readEnvironmentSupportsPinning,
+  readEnvironmentSupportsPullRequestLink,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
   readEnvironmentSupportsTitleRegeneration,
@@ -63,8 +64,22 @@ export function useThreadActionMenu(input: {
   /** PR state feeding auto-settle classification, as resolved by the caller. */
   readonly changeRequestState: ChangeRequestStateLike | null;
   readonly onStartRename: () => void;
+  /** Host terminology ("pull request" / "merge request"). The caller knows the
+      provider; this hook does not. */
+  readonly changeRequestName: string;
+  /** Opens the caller's link dialog. Absent means the surface has not wired
+      linking up, and the menu omits the actions entirely — same opt-in rule
+      as `clear`. */
+  readonly onLinkPullRequest?: (current: number | null) => void;
 }) {
-  const { threadRef, projectCwd, changeRequestState, onStartRename } = input;
+  const {
+    threadRef,
+    projectCwd,
+    changeRequestState,
+    changeRequestName,
+    onLinkPullRequest,
+    onStartRename,
+  } = input;
   const {
     settleThread,
     unsettleThread,
@@ -73,6 +88,7 @@ export function useThreadActionMenu(input: {
     pinThread,
     unpinThread,
     deleteThread,
+    unlinkThreadPullRequest,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -112,6 +128,9 @@ export function useThreadActionMenu(input: {
           snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
           pinning: readEnvironmentSupportsPinning(threadRef.environmentId),
           titleRegeneration: readEnvironmentSupportsTitleRegeneration(threadRef.environmentId),
+          pullRequestLink:
+            onLinkPullRequest !== undefined &&
+            readEnvironmentSupportsPullRequestLink(threadRef.environmentId),
         };
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
@@ -131,6 +150,8 @@ export function useThreadActionMenu(input: {
           isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
           canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
           isRegeneratingTitle,
+          linkedPullRequestNumber: thread.linkedPullRequest?.number ?? null,
+          changeRequestName,
           supports,
           snoozePresets,
         });
@@ -206,6 +227,15 @@ export function useThreadActionMenu(input: {
             return;
           case "unpin":
             await reportFailure("Failed to unpin thread", () => unpinThread(threadRef));
+            return;
+          case "link-pull-request":
+          case "relink-pull-request":
+            onLinkPullRequest?.(thread.linkedPullRequest?.number ?? null);
+            return;
+          case "unlink-pull-request":
+            await reportFailure(`Failed to unlink ${changeRequestName}`, () =>
+              unlinkThreadPullRequest(threadRef),
+            );
             return;
           case "rename":
             onStartRename();

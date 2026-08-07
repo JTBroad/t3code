@@ -1,9 +1,11 @@
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type { ThreadLinkedPullRequest, VcsStatusResult } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   prStatusIndicator,
+  linkedPullRequestToThreadPr,
   resolveThreadPr,
+  resolveThreadPullRequest,
   settledPrHoverColorClass,
 } from "./ThreadStatusIndicators";
 
@@ -96,5 +98,81 @@ describe("settledPrHoverColorClass", () => {
     ["closed", "text-red-600"],
   ] as const)("restores the %s pull request color on row hover", (state, colorClass) => {
     expect(settledPrHoverColorClass(state)).toContain(`group-hover/v2-row:${colorClass}`);
+  });
+});
+
+const LINK: ThreadLinkedPullRequest = {
+  number: 7,
+  url: "https://github.com/pingdotgg/t3code/pull/7",
+  title: "Linked PR",
+  headBranch: "feature/linked",
+  baseBranch: "main",
+  state: "open",
+  cwd: "/repo",
+  linkedAt: "2026-08-01T00:00:00.000Z",
+  linkedBy: "user",
+  refreshedAt: "2026-08-01T00:00:00.000Z",
+};
+
+describe("resolveThreadPullRequest", () => {
+  it("infers from the branch in auto mode, ignoring any link", () => {
+    expect(
+      resolveThreadPullRequest({
+        mode: "auto",
+        linkSupported: true,
+        threadBranch: "feature/current",
+        linkedPullRequest: LINK,
+        gitStatus: status(),
+      })?.number,
+    ).toBe(42);
+  });
+
+  it("returns the linked PR in manual mode even when the branch matches another", () => {
+    expect(
+      resolveThreadPullRequest({
+        mode: "manual",
+        linkSupported: true,
+        threadBranch: "feature/current",
+        linkedPullRequest: LINK,
+        gitStatus: status(),
+      })?.number,
+    ).toBe(7);
+  });
+
+  it("shows no PR in manual mode when nothing is linked", () => {
+    // The mismatch this whole mode exists to prevent: a branch-matched PR
+    // must not appear on a thread the user never linked it to.
+    expect(
+      resolveThreadPullRequest({
+        mode: "manual",
+        linkSupported: true,
+        threadBranch: "feature/current",
+        linkedPullRequest: null,
+        gitStatus: status(),
+      }),
+    ).toBeNull();
+  });
+
+  it("falls back to inference when the server cannot store links", () => {
+    expect(
+      resolveThreadPullRequest({
+        mode: "manual",
+        linkSupported: false,
+        threadBranch: "feature/current",
+        linkedPullRequest: null,
+        gitStatus: status(),
+      })?.number,
+    ).toBe(42);
+  });
+
+  it("maps a link onto the same shape an inferred PR uses", () => {
+    expect(linkedPullRequestToThreadPr(LINK)).toEqual({
+      number: 7,
+      title: "Linked PR",
+      url: "https://github.com/pingdotgg/t3code/pull/7",
+      baseRef: "main",
+      headRef: "feature/linked",
+      state: "open",
+    });
   });
 });

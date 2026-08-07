@@ -5,6 +5,35 @@ export type ChangeRequestStateLike = "open" | "closed" | "merged";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
+/**
+ * Which PR — if any — the thread lifecycle is allowed to react to.
+ *
+ * "auto" keeps the historical behavior: whatever the branch-name lookup
+ * inferred from git status. Cheap, and wrong whenever branch names repeat or a
+ * thread's recorded branch drifts from the checkout it was created against.
+ *
+ * "manual" only ever answers with the explicitly linked PR. An inferred PR is
+ * discarded outright — not downgraded, not shown dimmed — so a thread with no
+ * link has no PR badge and cannot auto-settle. That is the whole point of the
+ * mode: nothing gets attached on the user's behalf.
+ *
+ * Under version skew (`linkSupported` false, i.e. a server that predates
+ * thread.pull-request.link) manual mode would leave every thread permanently
+ * unlinkable, so the inferred state is used regardless — the user can still
+ * flip the setting, it just cannot take effect until the server catches up.
+ */
+export function resolveThreadChangeRequestState(input: {
+  readonly mode: "auto" | "manual";
+  readonly linkSupported: boolean;
+  readonly linkedPullRequest: { readonly state: ChangeRequestStateLike } | null | undefined;
+  readonly inferredState: ChangeRequestStateLike | null;
+}): ChangeRequestStateLike | null {
+  if (input.mode === "auto" || !input.linkSupported) {
+    return input.inferredState;
+  }
+  return input.linkedPullRequest?.state ?? null;
+}
+
 export function threadLastActivityAt(shell: OrchestrationThreadShell): string | null {
   const candidates = [
     shell.latestUserMessageAt,

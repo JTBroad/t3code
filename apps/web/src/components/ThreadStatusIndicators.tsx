@@ -3,7 +3,11 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type {
+  ThreadLinkedPullRequest,
+  ThreadPullRequestLinkMode,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 import { CloudIcon, FolderGit2Icon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
@@ -110,6 +114,14 @@ export function PrStatusTooltipContent({ status }: { status: PrStatusIndicator }
   );
 }
 
+/**
+ * Branch-name inference: the PR the CURRENT checkout of this cwd has, and only
+ * when the thread's recorded branch still matches that checkout. Cheap, and
+ * the source of every "that's not my PR" mismatch — a stale thread.branch that
+ * happens to equal the live branch inherits its PR. `resolveThreadPullRequest`
+ * is what call sites should use; this stays exported for the auto-mode path
+ * and its tests.
+ */
 export function resolveThreadPr(input: {
   threadBranch: string | null;
   gitStatus: VcsStatusResult | null;
@@ -124,6 +136,37 @@ export function resolveThreadPr(input: {
   }
 
   return gitStatus.pr ?? null;
+}
+
+/** An explicit link rendered through the same badge/tooltip path as an
+    inferred one: downstream UI should not care how the PR was found. */
+export function linkedPullRequestToThreadPr(link: ThreadLinkedPullRequest): NonNullable<ThreadPr> {
+  return {
+    number: link.number,
+    title: link.title,
+    url: link.url,
+    baseRef: link.baseBranch,
+    headRef: link.headBranch,
+    state: link.state,
+  };
+}
+
+/**
+ * The one place that decides which PR a thread "has". In manual mode only an
+ * explicit link counts; in auto mode the branch inference does. See
+ * `resolveThreadChangeRequestState` for the same decision on the settle side.
+ */
+export function resolveThreadPullRequest(input: {
+  mode: ThreadPullRequestLinkMode;
+  linkSupported: boolean;
+  threadBranch: string | null;
+  linkedPullRequest: ThreadLinkedPullRequest | null | undefined;
+  gitStatus: VcsStatusResult | null;
+}): ThreadPr | null {
+  if (input.mode === "manual" && input.linkSupported) {
+    return input.linkedPullRequest ? linkedPullRequestToThreadPr(input.linkedPullRequest) : null;
+  }
+  return resolveThreadPr({ threadBranch: input.threadBranch, gitStatus: input.gitStatus });
 }
 
 export function terminalStatusFromRunningIds(

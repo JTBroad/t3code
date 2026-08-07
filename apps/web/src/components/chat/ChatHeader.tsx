@@ -47,6 +47,11 @@ interface ChatHeaderProps {
   isServerThread: boolean;
   /** PR state feeding the settled classification, resolved by ChatView. */
   changeRequestState: ChangeRequestStateLike | null;
+  /** Host terminology for the action menu ("pull request" / "merge request"). */
+  changeRequestName: string;
+  /** Opens ChatView's link dialog; omitted while there is no repo to resolve
+      a reference against, which also hides the link actions. */
+  onLinkPullRequest?: (current: number | null) => void;
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
   openInCwd: string | null;
@@ -99,6 +104,8 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   isServerThread,
   changeRequestState,
+  changeRequestName,
+  onLinkPullRequest,
   activeProjectName,
   activeProjectCwd,
   openInCwd,
@@ -173,6 +180,8 @@ export const ChatHeader = memo(function ChatHeader({
     threadRef: isServerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     changeRequestState,
+    changeRequestName,
+    ...(onLinkPullRequest ? { onLinkPullRequest } : {}),
     onStartRename: startRename,
   });
   const titleButtonRef = useRef<HTMLButtonElement | null>(null);

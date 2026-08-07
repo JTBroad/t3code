@@ -23,6 +23,7 @@ import {
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
   ModelSelection,
+  ThreadLinkedPullRequest,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -85,6 +86,11 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    // Stored as JSON text (migration 041); decoded here so every read site
+    // hands the shell a real link instead of re-parsing a string.
+    linkedPullRequest: Schema.optional(
+      Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    ),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -424,6 +430,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_at AS "snoozedAt",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
+          linked_pull_request AS "linkedPullRequest",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -460,6 +467,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_at AS "snoozedAt",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
+          linked_pull_request AS "linkedPullRequest",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -498,6 +506,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_at AS "snoozedAt",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
+          linked_pull_request AS "linkedPullRequest",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -936,6 +945,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           snoozed_at AS "snoozedAt",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
+          linked_pull_request AS "linkedPullRequest",
           title_regeneration_request_id AS "titleRegenerationRequestId",
           title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
@@ -1567,6 +1577,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 snoozedAt: row.snoozedAt,
                 pinnedAt: row.pinnedAt,
                 pinOrderKey: row.pinOrderKey ?? null,
+                linkedPullRequest: row.linkedPullRequest ?? null,
                 titleRegeneration: mapTitleRegeneration(row),
                 deletedAt: row.deletedAt,
                 messages: messagesByThread.get(row.threadId) ?? [],
@@ -1772,6 +1783,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   snoozedAt: row.snoozedAt,
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
+                  linkedPullRequest: row.linkedPullRequest ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
                   deletedAt: row.deletedAt,
                   messages: [],
@@ -1908,6 +1920,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       snoozedAt: row.snoozedAt,
                       pinnedAt: row.pinnedAt,
                       pinOrderKey: row.pinOrderKey ?? null,
+                      linkedPullRequest: row.linkedPullRequest ?? null,
                       titleRegeneration: mapTitleRegeneration(row),
                       session: sessionByThread.get(row.threadId) ?? null,
                       latestUserMessageAt: row.latestUserMessageAt,
@@ -2053,6 +2066,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   snoozedAt: row.snoozedAt,
                   pinnedAt: row.pinnedAt,
                   pinOrderKey: row.pinOrderKey ?? null,
+                  linkedPullRequest: row.linkedPullRequest ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
                   session: sessionByThread.get(row.threadId) ?? null,
                   latestUserMessageAt: row.latestUserMessageAt,
@@ -2330,6 +2344,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         snoozedAt: threadRow.value.snoozedAt,
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
+        linkedPullRequest: threadRow.value.linkedPullRequest ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
@@ -2451,6 +2466,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         snoozedAt: threadRow.value.snoozedAt,
         pinnedAt: threadRow.value.pinnedAt,
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
+        linkedPullRequest: threadRow.value.linkedPullRequest ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
         deletedAt: null,
         messages: messageRows.map((row) => {

@@ -15,6 +15,9 @@ export type ThreadActionMenuId =
   | "snooze"
   | `snooze:${string}`
   | "unsnooze"
+  | "link-pull-request"
+  | "relink-pull-request"
+  | "unlink-pull-request"
   | "rename"
   | "regenerate-title"
   | "mark-unread"
@@ -30,6 +33,13 @@ export interface ThreadActionMenuState {
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
+  /** The PR currently linked to this thread, or null. Drives link vs.
+      change/unlink, and puts the number in the label so the menu says which
+      PR would be detached. */
+  readonly linkedPullRequestNumber: number | null;
+  /** Terminology for the host (pull request / merge request), so the label
+      does not say "pull request" on a GitLab project. */
+  readonly changeRequestName: string;
   readonly supports: {
     readonly settlement: boolean;
     readonly snooze: boolean;
@@ -41,6 +51,13 @@ export interface ThreadActionMenuState {
      * deliberate act instead of something a default silently turns on.
      */
     readonly clear?: boolean;
+    /**
+     * Optional for the same reason as `clear`. Note this is capability-only:
+     * the actions show in BOTH link modes. Auto mode still benefits from
+     * pinning down a thread whose branch guessed wrong, and a link made in
+     * auto mode is what makes switching to manual non-destructive.
+     */
+    readonly pullRequestLink?: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
 }
@@ -93,6 +110,20 @@ export function buildThreadActionMenuItems(
                 })),
               },
         ]
+      : []),
+    ...(state.supports.pullRequestLink
+      ? state.linkedPullRequestNumber === null
+        ? [{ id: "link-pull-request" as const, label: `Link ${state.changeRequestName}…` }]
+        : [
+            {
+              id: "relink-pull-request" as const,
+              label: `Change linked ${state.changeRequestName} (#${state.linkedPullRequestNumber})…`,
+            },
+            {
+              id: "unlink-pull-request" as const,
+              label: `Unlink ${state.changeRequestName} #${state.linkedPullRequestNumber}`,
+            },
+          ]
       : []),
     { id: "rename", label: "Rename thread" },
     ...(state.supports.titleRegeneration

@@ -236,6 +236,7 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
+import { LinkPullRequestDialog } from "./LinkPullRequestDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { resolveTimelineIsAtEnd } from "./chat/MessagesTimeline.logic";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -254,7 +255,9 @@ import {
   shouldShowProviderStatusBanner,
 } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
-import { resolveThreadPr } from "./ThreadStatusIndicators";
+import { resolveThreadPullRequest } from "./ThreadStatusIndicators";
+import { getSourceControlPresentation } from "../sourceControlPresentation";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ThreadSyncStatusPill } from "./chat/ThreadSyncStatusPill";
 import {
@@ -3966,8 +3969,28 @@ function ChatViewContent(props: ChatViewProps) {
   // so the banner and the sidebar row never disagree.
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
-  const activeThreadPr = resolveThreadPr({
+  const pullRequestLinkMode = useClientSettings((settings) => settings.threadPullRequestLinkMode);
+  const changeRequestTerminology = useMemo(
+    () => getSourceControlPresentation(gitStatusQuery.data?.sourceControlProvider).terminology,
+    [gitStatusQuery.data?.sourceControlProvider],
+  );
+  const [linkPullRequestDialog, setLinkPullRequestDialog] = useState<{
+    readonly currentNumber: number | null;
+  } | null>(null);
+  const openLinkPullRequestDialog = useCallback(
+    (currentNumber: number | null) => setLinkPullRequestDialog({ currentNumber }),
+    [],
+  );
+  const { linkThreadPullRequest } = useThreadActions();
+  const supportsPullRequestLink =
+    serverConfig?.environment.capabilities.threadPullRequestLink === true;
+  // Same resolution the sidebar row uses, so the banner, the header menu and
+  // the row can never disagree about which PR this thread has.
+  const activeThreadPr = resolveThreadPullRequest({
+    mode: pullRequestLinkMode,
+    linkSupported: supportsPullRequestLink,
     threadBranch: activeThread?.branch ?? null,
+    linkedPullRequest: activeThreadShell?.linkedPullRequest,
     gitStatus: gitStatusQuery.data ?? null,
   });
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
@@ -5981,6 +6004,10 @@ function ChatViewContent(props: ChatViewProps) {
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
             changeRequestState={activeThreadPr?.state ?? null}
+            changeRequestName={changeRequestTerminology.singular}
+            {...(supportsPullRequestLink && gitCwd
+              ? { onLinkPullRequest: openLinkPullRequestDialog }
+              : {})}
             activeProjectName={activeProject?.title}
             activeProjectCwd={activeProject?.workspaceRoot ?? null}
             openInCwd={gitCwd}
@@ -6294,6 +6321,31 @@ function ChatViewContent(props: ChatViewProps) {
                 </AlertDialogFooter>
               </AlertDialogPopup>
             </AlertDialog>
+
+            {linkPullRequestDialog !== null && gitCwd && activeThreadRef ? (
+              <LinkPullRequestDialog
+                open
+                environmentId={activeThread.environmentId}
+                cwd={gitCwd}
+                currentNumber={linkPullRequestDialog.currentNumber}
+                onOpenChange={(open) => {
+                  if (!open) setLinkPullRequestDialog(null);
+                }}
+                onLink={async (pullRequest) => {
+                  const result = await linkThreadPullRequest(activeThreadRef, {
+                    pullRequest,
+                    cwd: gitCwd,
+                    linkedBy: "user",
+                  });
+                  if (result._tag === "Failure") {
+                    const error = squashAtomCommandFailure(result);
+                    throw error instanceof Error
+                      ? error
+                      : new Error("Failed to link pull request.");
+                  }
+                }}
+              />
+            ) : null}
 
             {pullRequestDialogState ? (
               <PullRequestThreadDialog

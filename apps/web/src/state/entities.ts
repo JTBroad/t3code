@@ -232,6 +232,15 @@ export function readEnvironmentSupportsSettlement(environmentId: EnvironmentId):
   );
 }
 
+/** Whether the environment's server understands thread.pull-request.link and
+    .unlink. Same version-skew contract as settlement. */
+export function readEnvironmentSupportsPullRequestLink(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadPullRequestLink === true
+  );
+}
+
 /** Whether the environment's server understands thread.snooze/unsnooze.
     Same version-skew contract as settlement. */
 export function readEnvironmentSupportsSnooze(environmentId: EnvironmentId): boolean {

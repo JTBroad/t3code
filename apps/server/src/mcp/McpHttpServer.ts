@@ -19,6 +19,8 @@ import {
 } from "./toolkits/preview/handlers.ts";
 import { MemoryToolkitHandlersLive } from "./toolkits/memory/handlers.ts";
 import { MemoryToolkit } from "./toolkits/memory/tools.ts";
+import { ThreadToolkitHandlersLive } from "./toolkits/thread/handlers.ts";
+import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
@@ -217,10 +219,15 @@ const MemoryToolkitRegistrationLive = McpServer.toolkit(MemoryToolkit).pipe(
   Layer.provide(MemoryToolkitHandlersLive),
 );
 
+const ThreadToolkitRegistrationLive = McpServer.toolkit(ThreadToolkit).pipe(
+  Layer.provide(ThreadToolkitHandlersLive),
+);
+
 export const PreviewToolkitRegistrationLive = Layer.mergeAll(
   PreviewStandardToolkitRegistrationLive,
   PreviewSnapshotRegistrationLive,
   MemoryToolkitRegistrationLive,
+  ThreadToolkitRegistrationLive,
 );
 
 const McpTransportLive = McpServer.layerHttp({

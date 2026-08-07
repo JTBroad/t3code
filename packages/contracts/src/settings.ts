@@ -52,6 +52,21 @@ export const SidebarAutoSettleAfterDays = Schema.Number.check(
 );
 export type SidebarAutoSettleAfterDays = typeof SidebarAutoSettleAfterDays.Type;
 export const DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS: SidebarAutoSettleAfterDays = 3;
+/**
+ * How a thread finds its pull request.
+ *
+ * "auto" is the historical behavior: the PR is inferred from the thread's
+ * branch on every status poll, and a merged/closed inferred PR auto-settles
+ * the thread. Cheap when branch names are unique, wrong when they are not.
+ *
+ * "manual" turns inference off for the thread lifecycle entirely: only a PR
+ * explicitly linked via thread.pull-request.link shows a badge or settles a
+ * thread. The branch toolbar still shows what the checkout is doing — this
+ * setting governs the thread↔PR association, not git status.
+ */
+export const ThreadPullRequestLinkMode = Schema.Literals(["auto", "manual"]);
+export type ThreadPullRequestLinkMode = typeof ThreadPullRequestLinkMode.Type;
+export const DEFAULT_THREAD_PULL_REQUEST_LINK_MODE: ThreadPullRequestLinkMode = "auto";
 export const MIN_GLASS_OPACITY = 40;
 export const MAX_GLASS_OPACITY = 100;
 export const GlassOpacity = Schema.Int.check(
@@ -173,6 +188,9 @@ export const ClientSettingsSchema = Schema.Struct({
   planModeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarAutoSettleAfterDays: Schema.NullOr(SidebarAutoSettleAfterDays).pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_AUTO_SETTLE_AFTER_DAYS)),
+  ),
+  threadPullRequestLinkMode: ThreadPullRequestLinkMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_PULL_REQUEST_LINK_MODE)),
   ),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
@@ -860,6 +878,7 @@ export const ClientSettingsPatch = Schema.Struct({
   ),
   planModeEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
+  threadPullRequestLinkMode: Schema.optionalKey(ThreadPullRequestLinkMode),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

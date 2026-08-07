@@ -125,6 +125,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat"
 import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
+import { LinkPullRequestDialog } from "./LinkPullRequestDialog";
 import {
   buildBulkTitleRegenerationContextMenuItem,
   formatWorkingDurationLabel,
@@ -147,7 +148,7 @@ import {
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
   prStatusIndicator,
-  resolveThreadPr,
+  resolveThreadPullRequest,
   settledPrHoverColorClass,
   terminalStatusFromRunningIds,
   type TerminalStatusIndicator,
@@ -434,6 +435,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle" | "unsnooze";
+  // False on environments whose server predates thread.pull-request.link, so
+  // manual mode degrades to inference instead of hiding every PR.
+  pullRequestLinkSupported: boolean;
   // False on environments whose server predates thread.settle/unsettle:
   // the lifecycle affordances hide entirely rather than fail on click.
   settlementSupported: boolean;
@@ -512,6 +516,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const openPrLink = useOpenPrLink();
+  const pullRequestLinkMode = useClientSettings((s) => s.threadPullRequestLinkMode);
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: thread.environmentId,
     threadId: thread.id,
@@ -528,8 +533,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         })
       : null,
   );
-  const pr = resolveThreadPr({
+  // In manual mode this row shows the linked PR or nothing at all — the
+  // branch-derived lookup above still runs (ahead/behind and the branch label
+  // need it) but its `pr` is deliberately ignored.
+  const pr = resolveThreadPullRequest({
+    mode: pullRequestLinkMode,
+    linkSupported: props.pullRequestLinkSupported,
     threadBranch: thread.branch,
+    linkedPullRequest: thread.linkedPullRequest,
     gitStatus: gitStatus.data,
   });
   const prState = pr?.state ?? null;
@@ -1376,7 +1387,16 @@ export default function SidebarV2() {
     reorderPinnedThread,
     deleteThread,
     clearThread,
+    linkThreadPullRequest,
+    unlinkThreadPullRequest,
   } = useThreadActions();
+  // One dialog for the whole sidebar, targeted per open: rendering a dialog
+  // per row would mount hundreds of them.
+  const [linkPrTarget, setLinkPrTarget] = useState<{
+    readonly threadRef: ScopedThreadRef;
+    readonly cwd: string;
+    readonly currentNumber: number | null;
+  } | null>(null);
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -2787,6 +2807,12 @@ export default function SidebarV2() {
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadClear === true &&
           thread.session?.status !== "running" &&
           thread.session?.status !== "starting";
+        const supportsPullRequestLink =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities
+            .threadPullRequestLink === true &&
+          // Linking resolves the reference against a repo, so a thread with
+          // neither a worktree nor a known project cwd has nothing to ask.
+          threadWorkspacePath !== null;
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
@@ -2802,12 +2828,15 @@ export default function SidebarV2() {
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
+              linkedPullRequestNumber: thread.linkedPullRequest?.number ?? null,
+              changeRequestName: "pull request",
               supports: {
                 settlement: supportsSettlement,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
                 titleRegeneration: supportsTitleRegeneration,
                 clear: supportsClear,
+                pullRequestLink: supportsPullRequestLink,
               },
               snoozePresets,
             }),
@@ -2861,6 +2890,30 @@ export default function SidebarV2() {
           case "unpin":
             attemptUnpin(threadRef);
             return;
+          case "link-pull-request":
+          case "relink-pull-request": {
+            if (threadWorkspacePath === null) return;
+            setLinkPrTarget({
+              threadRef,
+              cwd: threadWorkspacePath,
+              currentNumber: thread.linkedPullRequest?.number ?? null,
+            });
+            return;
+          }
+          case "unlink-pull-request": {
+            const result = await unlinkThreadPullRequest(threadRef);
+            if (result._tag === "Failure") {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Failed to unlink pull request",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+            return;
+          }
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
@@ -2967,6 +3020,7 @@ export default function SidebarV2() {
       projectCwdByKey,
       serverConfigs,
       startThreadRename,
+      unlinkThreadPullRequest,
       updateThreadMetadata,
       timestampFormat,
     ],
@@ -3348,6 +3402,10 @@ export default function SidebarV2() {
                               ? "unsettle"
                               : "settle"
                         }
+                        pullRequestLinkSupported={
+                          serverConfigs.get(thread.environmentId)?.environment.capabilities
+                            .threadPullRequestLink === true
+                        }
                         settlementSupported={
                           serverConfigs.get(thread.environmentId)?.environment.capabilities
                             .threadSettlement === true
@@ -3576,6 +3634,30 @@ export default function SidebarV2() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
+      {linkPrTarget ? (
+        <LinkPullRequestDialog
+          open
+          environmentId={linkPrTarget.threadRef.environmentId}
+          cwd={linkPrTarget.cwd}
+          currentNumber={linkPrTarget.currentNumber}
+          onOpenChange={(open) => {
+            if (!open) setLinkPrTarget(null);
+          }}
+          onLink={async (pullRequest) => {
+            const result = await linkThreadPullRequest(linkPrTarget.threadRef, {
+              pullRequest,
+              cwd: linkPrTarget.cwd,
+              linkedBy: "user",
+            });
+            if (result._tag === "Failure") {
+              const error = squashAtomCommandFailure(result);
+              // Thrown so the dialog keeps the reference on screen and shows
+              // the reason inline instead of closing over a failed link.
+              throw error instanceof Error ? error : new Error("Failed to link pull request.");
+            }
+          }}
+        />
+      ) : null}
       <Dialog
         open={projectActionsTarget !== null}
         onOpenChange={(open) => {

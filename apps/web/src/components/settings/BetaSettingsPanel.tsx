@@ -60,6 +60,7 @@ export function BetaSettingsPanel() {
   const sidebarAutoSettleAfterDays = useClientSettings(
     (settings) => settings.sidebarAutoSettleAfterDays,
   );
+  const pullRequestLinkMode = useClientSettings((settings) => settings.threadPullRequestLinkMode);
   const planModeEnabled = useClientSettings((settings) => settings.planModeEnabled);
   const updateSettings = useUpdateClientSettings();
 
@@ -113,6 +114,19 @@ export function BetaSettingsPanel() {
                 }
               />
             ) : null}
+            <SettingsRow
+              title={searchableSetting("manual-pull-request-linking").title}
+              description="Off, a thread picks up whichever pull request matches its branch — which goes wrong when branch names repeat or a thread's branch drifts. On, only a pull request you link yourself (right-click a thread → Link pull request) shows a badge or settles the thread."
+              control={
+                <Switch
+                  checked={pullRequestLinkMode === "manual"}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ threadPullRequestLinkMode: checked ? "manual" : "auto" })
+                  }
+                  aria-label="Only use manually linked pull requests"
+                />
+              }
+            />
           </>
         ) : null}
         <SettingsRow

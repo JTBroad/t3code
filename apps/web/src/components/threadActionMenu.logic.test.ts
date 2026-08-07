@@ -9,6 +9,8 @@ const baseState: ThreadActionMenuState = {
   isSnoozed: false,
   canSnoozeNow: true,
   isRegeneratingTitle: false,
+  linkedPullRequestNumber: null,
+  changeRequestName: "pull request",
   supports: { settlement: true, snooze: true, pinning: true, titleRegeneration: true },
   snoozePresets: [
     { id: "hour", label: "In 1 hour", whenLabel: "3:00 PM", snoozedUntil: "2026-08-07T15:00:00Z" },
@@ -62,5 +64,47 @@ describe("buildThreadActionMenuItems", () => {
   it("marks delete as destructive and keeps it last", () => {
     const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
     expect(items.at(-1)).toMatchObject({ id: "delete", destructive: true });
+  });
+});
+
+describe("pull request linking items", () => {
+  it("omits the actions on surfaces that have not wired linking up", () => {
+    expect(ids(baseState)).not.toContain("link-pull-request");
+  });
+
+  it("offers a single link action when no PR is linked", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      supports: { ...baseState.supports, pullRequestLink: true },
+    });
+    expect(items.map((item) => item.id)).toContain("link-pull-request");
+    expect(items.map((item) => item.id)).not.toContain("unlink-pull-request");
+    expect(items.find((item) => item.id === "link-pull-request")?.label).toBe("Link pull request…");
+  });
+
+  it("names the linked PR so unlinking says what it detaches", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      linkedPullRequestNumber: 42,
+      supports: { ...baseState.supports, pullRequestLink: true },
+    });
+    expect(items.map((item) => item.id)).not.toContain("link-pull-request");
+    expect(items.find((item) => item.id === "unlink-pull-request")?.label).toBe(
+      "Unlink pull request #42",
+    );
+    expect(items.find((item) => item.id === "relink-pull-request")?.label).toBe(
+      "Change linked pull request (#42)…",
+    );
+  });
+
+  it("uses the host's terminology", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      changeRequestName: "merge request",
+      supports: { ...baseState.supports, pullRequestLink: true },
+    });
+    expect(items.find((item) => item.id === "link-pull-request")?.label).toBe(
+      "Link merge request…",
+    );
   });
 });

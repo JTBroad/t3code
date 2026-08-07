@@ -56,6 +56,7 @@ import Migration0038 from "./Migrations/038_ProjectionThreadsPinOrderKey.ts";
 // collides.
 import Migration0039 from "./Migrations/039_MemoryAndDrive.ts";
 import Migration0040 from "./Migrations/040_ProjectionThreadsPinnedRepair.ts";
+import Migration0041 from "./Migrations/041_ProjectionThreadsLinkedPullRequest.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -108,6 +109,7 @@ export const migrationEntries = [
   [38, "ProjectionThreadsPinOrderKey", Migration0038],
   [39, "MemoryAndDrive", Migration0039],
   [40, "ProjectionThreadsPinnedRepair", Migration0040],
+  [41, "ProjectionThreadsLinkedPullRequest", Migration0041],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

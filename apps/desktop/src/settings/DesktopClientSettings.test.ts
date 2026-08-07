@@ -32,6 +32,7 @@ const clientSettings: ClientSettings = {
   planModeEnabled: false,
   providerModelPreferences: {},
   sidebarAutoSettleAfterDays: 3,
+  threadPullRequestLinkMode: "auto",
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",

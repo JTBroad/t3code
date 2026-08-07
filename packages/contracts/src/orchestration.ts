@@ -344,6 +344,34 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+/**
+ * A pull request the user (or the thread's agent) deliberately attached to a
+ * thread. This is the ONLY durable thread↔PR association: the badge derived
+ * from the checked-out branch is inference, recomputed per status poll and
+ * never stored. A link is resolved server-side at link time, so `number` and
+ * `url` are the hosting provider's answer, not a client's claim.
+ *
+ * `state` is a snapshot refreshed by status polls; it is what auto-settle
+ * reads in manual mode.
+ */
+export const ThreadLinkedPullRequest = Schema.Struct({
+  number: NonNegativeInt,
+  url: TrimmedNonEmptyString,
+  title: Schema.String,
+  headBranch: TrimmedNonEmptyString,
+  baseBranch: TrimmedNonEmptyString,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  // The cwd the link was resolved against. Refreshes re-resolve from here so a
+  // link made in a worktree keeps asking the repo that actually owns the PR.
+  cwd: TrimmedNonEmptyString,
+  linkedAt: IsoDateTime,
+  // Who attached it. "agent" links arrive through the MCP thread toolkit.
+  linkedBy: Schema.Literals(["user", "agent"]),
+  // When `state` was last re-read from the provider.
+  refreshedAt: IsoDateTime,
+});
+export type ThreadLinkedPullRequest = typeof ThreadLinkedPullRequest.Type;
+
 export const ThreadTitleRegeneration = Schema.Struct({
   requestId: CommandId,
   startedAt: IsoDateTime,
@@ -384,6 +412,10 @@ export const OrchestrationThread = Schema.Struct({
   // servers never need each other's threads to agree on the merged list.
   // Optional so payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Explicit PR attachment (thread.pull-request.link). Optional so payloads
+  // from pre-linking servers still decode; absent and null both mean "no
+  // link", and in manual mode that means no PR badge and no auto-settle.
+  linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -440,6 +472,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -725,6 +758,24 @@ const ThreadPinCommand = Schema.Struct({
   orderKey: Schema.optional(TrimmedNonEmptyString),
 });
 
+// Attaching a PR needs a provider round trip (gh/glab/az) to turn a reference
+// into a real PR, and the decider is pure over the read model — so resolution
+// happens at the edge (ws handler / MCP toolkit) and the command carries the
+// resolved snapshot. Clients never send a raw reference through the engine,
+// which is also why a client cannot invent a PR the provider does not have.
+const ThreadLinkPullRequestCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.link"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  pullRequest: ThreadLinkedPullRequest,
+});
+
+const ThreadUnlinkPullRequestCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.unlink"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
 const ThreadUnpinCommand = Schema.Struct({
   type: Schema.Literal("thread.unpin"),
   commandId: CommandId,
@@ -899,6 +950,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
+  ThreadLinkPullRequestCommand,
+  ThreadUnlinkPullRequestCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -928,6 +981,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
+  ThreadLinkPullRequestCommand,
+  ThreadUnlinkPullRequestCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1047,6 +1102,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.pinned",
   "thread.unpinned",
   "thread.pin-reordered",
+  "thread.pull-request-linked",
+  "thread.pull-request-unlinked",
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
@@ -1173,6 +1230,17 @@ export const ThreadPinnedPayload = Schema.Struct({
 });
 
 export const ThreadUnpinnedPayload = Schema.Struct({
+  threadId: ThreadId,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadPullRequestLinkedPayload = Schema.Struct({
+  threadId: ThreadId,
+  pullRequest: ThreadLinkedPullRequest,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadPullRequestUnlinkedPayload = Schema.Struct({
   threadId: ThreadId,
   updatedAt: IsoDateTime,
 });
@@ -1396,6 +1464,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.pin-reordered"),
     payload: ThreadPinReorderedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.pull-request-linked"),
+    payload: ThreadPullRequestLinkedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.pull-request-unlinked"),
+    payload: ThreadPullRequestUnlinkedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
  * Capabilities an MCP session can be granted. Mirrors `McpCapabilityName` in
  * contracts, which is the shape that crosses the wire in errors.
  */
-export type McpCapability = "preview" | "memory";
+export type McpCapability = "preview" | "memory" | "thread";
 
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
