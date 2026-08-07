@@ -23,7 +23,7 @@ import {
   type MemoryListArtifactsResult,
   type MemoryListNotesResult,
   type MemoryReadDailyResult,
-} from "@t3tools/contracts";
+} from "@t3tools/contracts/apps/memory";
 
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";

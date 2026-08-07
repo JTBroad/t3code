@@ -1450,6 +1450,36 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.memoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
             "rpc.aggregate": "memory",
           }),
+        // The pre-namespacing names, dispatched to the same handlers for one
+        // release. Clients update on their own schedule -- mobile ships through
+        // app stores -- so removing these alongside the rename would break every
+        // client that had not yet updated.
+        [WS_METHODS.legacyMemoryConsolidate]: (_input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryConsolidate, MemoryRpc.memoryConsolidate(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryReadDaily]: (_input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryReadDaily, MemoryRpc.memoryReadDaily(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryListNotes]: (input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryListNotes, MemoryRpc.memoryListNotes(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryGetNote]: (input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryGetNote, MemoryRpc.memoryGetNote(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryListArtifacts]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.legacyMemoryListArtifacts,
+            MemoryRpc.memoryListArtifacts(input),
+            { "rpc.aggregate": "memory" },
+          ),
+        [WS_METHODS.legacyMemoryGetArtifact]: (input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
+            "rpc.aggregate": "memory",
+          }),
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {
             "rpc.aggregate": "server",

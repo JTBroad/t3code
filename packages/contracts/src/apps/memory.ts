@@ -12,7 +12,7 @@
  * @module Memory
  */
 import { Schema } from "effect";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, TrimmedNonEmptyString } from "../baseSchemas.ts";
 
 export const MEMORY_LIST_DEFAULT_LIMIT = 100;
 export const MEMORY_LIST_MAX_LIMIT = 500;
@@ -234,3 +234,46 @@ export class MemoryOperationError extends Schema.ErrorClass<MemoryOperationError
   operation: Schema.String,
   message: Schema.String,
 }) {}
+
+/* ── rpc ────────────────────────────────────────────────────────────────── */
+
+/**
+ * The memory app's RPC surface.
+ *
+ * Defined here, beside the app's schemas, rather than in the core RPC module.
+ * An app owns its wire contract for the same reason it owns its tables and its
+ * settings: every app-shaped thing in a shared file is a future fork-versus-
+ * upstream conflict, and core has no business knowing these method names.
+ *
+ * Statically typed per app rather than a generic `app.invoke(appId, payload)`
+ * envelope. The envelope looks more plugin-like and is worse -- it throws away
+ * schema validation at the boundary and pushes decoding into every app, so a
+ * malformed payload becomes a runtime surprise inside the app instead of a
+ * decode failure at the edge.
+ */
+export const APP_MEMORY_METHODS = {
+  consolidate: "app.memory.consolidate",
+  readDaily: "app.memory.readDaily",
+  listNotes: "app.memory.listNotes",
+  getNote: "app.memory.getNote",
+  listArtifacts: "app.memory.listArtifacts",
+  getArtifact: "app.memory.getArtifact",
+} as const;
+
+/**
+ * The names this surface shipped under before apps owned their own namespaces.
+ *
+ * Retained for one release. Clients update on their own schedule -- mobile ships
+ * through app stores -- so removing these in the same release that adds the new
+ * names would break every client that had not yet updated.
+ *
+ * @deprecated Use {@link APP_MEMORY_METHODS}.
+ */
+export const LEGACY_MEMORY_METHODS = {
+  consolidate: "memory.consolidate",
+  readDaily: "memory.readDaily",
+  listNotes: "memory.listNotes",
+  getNote: "memory.getNote",
+  listArtifacts: "memory.listArtifacts",
+  getArtifact: "memory.getArtifact",
+} as const;

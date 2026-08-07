@@ -27,7 +27,10 @@ export * from "./assets.ts";
 export * from "./review.ts";
 export * from "./preview.ts";
 export * from "./mcp.ts";
-export * from "./memory.ts";
+// Memory is a sidebar app and owns its own contract module. Deliberately not
+// re-exported here: core contracts should not grow a surface for every app, and
+// an app-shaped export in the root index is a future fork-merge conflict.
+// Import from "@t3tools/contracts/apps/memory" instead.
 export * from "./apps.ts";
 export * from "./previewAutomation.ts";
 export * from "./resourceTelemetry.ts";

@@ -4,7 +4,11 @@
  *
  * @module MemoryView.logic
  */
-import type { DriveArtifact, MemoryDailyEntry, MemoryNoteSummary } from "@t3tools/contracts";
+import type {
+  DriveArtifact,
+  MemoryDailyEntry,
+  MemoryNoteSummary,
+} from "@t3tools/contracts/apps/memory";
 
 export type MemoryTab = "daily" | "notes" | "drive";
 

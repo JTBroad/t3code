@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { DriveArtifact, MemoryDailyEntry, MemoryNoteSummary } from "@t3tools/contracts";
+import type {
+  DriveArtifact,
+  MemoryDailyEntry,
+  MemoryNoteSummary,
+} from "@t3tools/contracts/apps/memory";
 
 import {
   countRedactions,

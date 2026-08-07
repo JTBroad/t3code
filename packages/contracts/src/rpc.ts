@@ -122,7 +122,9 @@ import {
   MemoryOperationError,
   MemoryReadDailyInput,
   MemoryReadDailyResult,
-} from "./memory.ts";
+  APP_MEMORY_METHODS,
+  LEGACY_MEMORY_METHODS,
+} from "./apps/memory.ts";
 import {
   DiscoveredLocalServerList,
   PreviewCloseInput,
@@ -243,13 +245,24 @@ export const WS_METHODS = {
   previewAutomationRespond: "previewAutomation.respond",
   previewAutomationFocusHost: "previewAutomation.focusHost",
 
-  // Memory methods
-  memoryConsolidate: "memory.consolidate",
-  memoryReadDaily: "memory.readDaily",
-  memoryListNotes: "memory.listNotes",
-  memoryGetNote: "memory.getNote",
-  memoryListArtifacts: "memory.listArtifacts",
-  memoryGetArtifact: "memory.getArtifact",
+  // Memory app methods, namespaced under the app that owns them. The names
+  // themselves live in the app's own contract module -- core lists them here
+  // only so the one WS_METHODS map still answers "what can be called?".
+  memoryConsolidate: APP_MEMORY_METHODS.consolidate,
+  memoryReadDaily: APP_MEMORY_METHODS.readDaily,
+  memoryListNotes: APP_MEMORY_METHODS.listNotes,
+  memoryGetNote: APP_MEMORY_METHODS.getNote,
+  memoryListArtifacts: APP_MEMORY_METHODS.listArtifacts,
+  memoryGetArtifact: APP_MEMORY_METHODS.getArtifact,
+
+  // The pre-namespacing names, served for one release so clients that update on
+  // their own schedule keep working. @deprecated
+  legacyMemoryConsolidate: LEGACY_MEMORY_METHODS.consolidate,
+  legacyMemoryReadDaily: LEGACY_MEMORY_METHODS.readDaily,
+  legacyMemoryListNotes: LEGACY_MEMORY_METHODS.listNotes,
+  legacyMemoryGetNote: LEGACY_MEMORY_METHODS.getNote,
+  legacyMemoryListArtifacts: LEGACY_MEMORY_METHODS.listArtifacts,
+  legacyMemoryGetArtifact: LEGACY_MEMORY_METHODS.getArtifact,
 
   // Provider methods
   providersListAgents: "providers.listAgents",
@@ -353,6 +366,56 @@ export const WsMemoryListArtifactsRpc = Rpc.make(WS_METHODS.memoryListArtifacts,
 });
 
 export const WsMemoryGetArtifactRpc = Rpc.make(WS_METHODS.memoryGetArtifact, {
+  payload: MemoryGetArtifactInput,
+  success: MemoryGetArtifactResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+/**
+ * The pre-namespacing method names, identical in payload and result.
+ *
+ * Same schemas deliberately: an alias that drifted from the method it aliases
+ * would be worse than no alias, because a client would decode successfully and
+ * get different data. The server dispatches both to one handler.
+ *
+ * @deprecated Remove one release after `app.memory.*` ships.
+ */
+export const WsLegacyMemoryConsolidateRpc = Rpc.make(WS_METHODS.legacyMemoryConsolidate, {
+  payload: MemoryConsolidateInput,
+  success: MemoryConsolidateResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+/** @deprecated */
+export const WsLegacyMemoryReadDailyRpc = Rpc.make(WS_METHODS.legacyMemoryReadDaily, {
+  payload: MemoryReadDailyInput,
+  success: MemoryReadDailyResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+/** @deprecated */
+export const WsLegacyMemoryListNotesRpc = Rpc.make(WS_METHODS.legacyMemoryListNotes, {
+  payload: MemoryListNotesInput,
+  success: MemoryListNotesResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+/** @deprecated */
+export const WsLegacyMemoryGetNoteRpc = Rpc.make(WS_METHODS.legacyMemoryGetNote, {
+  payload: MemoryGetNoteInput,
+  success: MemoryGetNoteResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+/** @deprecated */
+export const WsLegacyMemoryListArtifactsRpc = Rpc.make(WS_METHODS.legacyMemoryListArtifacts, {
+  payload: MemoryListArtifactsInput,
+  success: MemoryListArtifactsResult,
+  error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+/** @deprecated */
+export const WsLegacyMemoryGetArtifactRpc = Rpc.make(WS_METHODS.legacyMemoryGetArtifact, {
   payload: MemoryGetArtifactInput,
   success: MemoryGetArtifactResult,
   error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
@@ -885,6 +948,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsMemoryGetNoteRpc,
   WsMemoryListArtifactsRpc,
   WsMemoryGetArtifactRpc,
+  WsLegacyMemoryConsolidateRpc,
+  WsLegacyMemoryReadDailyRpc,
+  WsLegacyMemoryListNotesRpc,
+  WsLegacyMemoryGetNoteRpc,
+  WsLegacyMemoryListArtifactsRpc,
+  WsLegacyMemoryGetArtifactRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
