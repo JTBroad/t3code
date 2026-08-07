@@ -114,21 +114,26 @@ export function BetaSettingsPanel() {
                 }
               />
             ) : null}
-            <SettingsRow
-              title={searchableSetting("manual-pull-request-linking").title}
-              description="Off, a thread picks up whichever pull request matches its branch — which goes wrong when branch names repeat or a thread's branch drifts. On, only a pull request you link yourself (right-click a thread → Link pull request) shows a badge or settles the thread."
-              control={
-                <Switch
-                  checked={pullRequestLinkMode === "manual"}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ threadPullRequestLinkMode: checked ? "manual" : "auto" })
-                  }
-                  aria-label="Only use manually linked pull requests"
-                />
-              }
-            />
           </>
         ) : null}
+        {/* Deliberately outside the v2 block: PR attachment is a thread-level
+            concern, not a sidebar-v2 one. Both sidebars and the chat header
+            resolve a thread's PR through the same mode, so gating the toggle
+            on v2 would leave v1 users stuck with branch inference and no way
+            to turn it off. */}
+        <SettingsRow
+          {...searchableSetting("manual-pull-request-linking")}
+          description="Off, a thread picks up whichever pull request matches its branch — which goes wrong when branch names repeat or a thread's branch drifts. On, only a pull request you link yourself (right-click a thread → Link pull request) shows a badge or settles the thread."
+          control={
+            <Switch
+              checked={pullRequestLinkMode === "manual"}
+              onCheckedChange={(checked) =>
+                updateSettings({ threadPullRequestLinkMode: checked ? "manual" : "auto" })
+              }
+              aria-label="Only use manually linked pull requests"
+            />
+          }
+        />
         <SettingsRow
           {...searchableSetting("restore-plan-mode")}
           description="Legacy feature. Brings back the Build/Plan toggle in the composer along with the /plan and /default commands and the Shift+Tab shortcut. While off, every thread runs in build mode."

@@ -198,10 +198,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "sidebar-v2",
   },
   {
+    // No targetId: unlike the auto-settle rows this one always renders, so
+    // search can anchor on the row itself instead of the v2 toggle above it.
     id: "manual-pull-request-linking",
     title: "Only use manually linked pull requests",
     to: "/settings/beta",
-    targetId: "sidebar-v2",
   },
   {
     id: "restore-plan-mode",
