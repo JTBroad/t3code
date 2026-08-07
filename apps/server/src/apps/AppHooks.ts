@@ -17,10 +17,16 @@
  * ## Hooks are advisory
  *
  * The turn is the user's actual request; a hook is an enhancement. So the reactor
- * treats every hook as fail-open and time-bounded: a hook that fails, dies, or
- * runs long is dropped with a warning and the turn proceeds without it. An app
- * must never be able to wedge a turn, which is also why hooks cannot veto one --
- * there is no "reject" in the result shape.
+ * treats every hook as fail-open and time-bounded: a hook that dies or runs long
+ * is dropped with a warning and the turn proceeds without it. An app must never
+ * be able to wedge a turn, which is also why hooks cannot veto one -- there is no
+ * "reject" in the result shape.
+ *
+ * A hook's error channel is `never`, so absorbing its own expected failures is
+ * the app's job: returning `null` is how an app says "I have nothing to add",
+ * including when the reason is that something went wrong. The runner still
+ * guards against defects and timeouts, because "cannot fail" is a claim about
+ * intent and the turn cannot afford to trust it.
  *
  * @module AppHooks
  */
@@ -59,7 +65,7 @@ export interface AppTurnHooks {
    * exactly what a model learns to ignore when it arrives on every turn.
    */
   readonly beforeFirstUserMessage?:
-    | ((context: AppTurnContext) => Effect.Effect<AppTurnContribution | null, unknown, never>)
+    | ((context: AppTurnContext) => Effect.Effect<AppTurnContribution | null, never, never>)
     | undefined;
 }
 

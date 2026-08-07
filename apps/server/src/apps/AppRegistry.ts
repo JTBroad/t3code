@@ -22,6 +22,7 @@
  * @module AppRegistry
  */
 import { APP_ID_MEMORY, isAppEnabled } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import type * as Layer from "effect/Layer";
 
 import type { AppTurnHooks } from "./AppHooks.ts";
@@ -83,3 +84,15 @@ export function collectEnabledHooks(input: {
 
 /** Ids of built-in apps, in the order they appear on the rail. */
 export const SERVER_APP_IDS = [APP_ID_MEMORY] as const;
+
+/**
+ * The registry as a service.
+ *
+ * Injected rather than imported so the hook runner can be built against a
+ * different app list -- which is what lets a test supply two fake apps and
+ * assert on ordering and isolation without booting the real ones.
+ */
+export class ServerAppRegistryTag extends Context.Service<
+  ServerAppRegistryTag,
+  ServerAppRegistry
+>()("t3/apps/AppRegistry/ServerAppRegistryTag") {}

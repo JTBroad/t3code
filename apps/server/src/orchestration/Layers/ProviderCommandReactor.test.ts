@@ -33,6 +33,8 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as AppHostLive from "../../apps/AppHostLive.ts";
+import * as AppRegistryLive from "../../apps/AppRegistryLive.ts";
+import * as AppTurnHooksRunner from "../../apps/AppTurnHooksRunner.ts";
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@t3tools/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
@@ -418,6 +420,9 @@ describe("ProviderCommandReactor", () => {
       // sent, and the host is what performs that lookup against the projections.
       // Sits above the config and SQL layers it draws on.
       Layer.provideMerge(AppHostLive.layer),
+      // The reactor reaches memory only through the hook runner now, so the real
+      // registry is what keeps these tests exercising the real continuity brief.
+      Layer.provideMerge(AppTurnHooksRunner.layer.pipe(Layer.provide(AppRegistryLive.layer))),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(SqlitePersistenceMemory),

@@ -22,6 +22,8 @@ import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as AppHostLive from "./apps/AppHostLive.ts";
+import * as AppRegistryLive from "./apps/AppRegistryLive.ts";
+import * as AppTurnHooksRunner from "./apps/AppTurnHooksRunner.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
@@ -378,7 +380,14 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // level because every app consumer -- the reactor's turn hooks, the MCP
   // toolkits, the RPC handlers -- must see the same instance, and it reads the
   // projections it resolves threads against.
-  Layer.provideMerge(AppHostLive.layer.pipe(Layer.provideMerge(PersistenceLayerLive))),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      AppHostLive.layer,
+      // The reactor reaches apps only through the hook runner, which needs the
+      // registry contents and the settings that say which apps are on.
+      AppTurnHooksRunner.layer.pipe(Layer.provide(AppRegistryLive.layer)),
+    ).pipe(Layer.provideMerge(PersistenceLayerLive)),
+  ),
   Layer.provideMerge(Keybindings.layer),
   Layer.provideMerge(ProviderRegistryLive),
   // The instance registry is the new routing keystone — text generation,

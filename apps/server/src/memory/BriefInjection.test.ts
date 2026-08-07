@@ -8,11 +8,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   BRIEF_CLOSE_MARKER,
   BRIEF_OPEN_MARKER,
+  formatBriefBlock,
   prependBrief,
   readLatestSummary,
   stripDailyScaffold,
   stripSummaryHeading,
 } from "./BriefInjection.ts";
+import { applyContributions } from "../apps/AppTurnHooksRunner.ts";
 import { SUMMARIES_DIRNAME } from "./Consolidation.ts";
 import { DAILY_SCAFFOLD } from "./DailyStore.ts";
 
@@ -37,6 +39,45 @@ describe("prependBrief", () => {
   it("keeps the brief ahead of the message", () => {
     const result = prependBrief("BRIEF_BODY", "USER_REQUEST");
     expect(result.indexOf("BRIEF_BODY")).toBeLessThan(result.indexOf("USER_REQUEST"));
+  });
+
+  // The reactor no longer calls prependBrief -- it collects a hook contribution
+  // and joins it with applyContributions. This pins the two paths together so
+  // the injected text stays byte-identical to what shipped before hooks existed.
+  // If this drifts, every thread's opening prompt changes silently.
+  it("composes through the hook path byte-identically", () => {
+    for (const brief of [
+      "# Continuity brief\n\n## Themes\n- Guard migrations",
+      "one line",
+      "trailing whitespace   \n",
+    ]) {
+      const viaHook = applyContributions(
+        [
+          {
+            appId: "memory",
+            contribution: {
+              prependText: formatBriefBlock(brief),
+              activity: {
+                kind: "memory.continuity-brief.injected",
+                tone: "info",
+                summary: "unused here",
+                payload: { brief },
+              },
+            },
+          },
+        ],
+        "ship it",
+      );
+
+      expect(viaHook).toBe(prependBrief(brief, "ship it"));
+    }
+  });
+
+  // An empty brief must contribute nothing, so the hook returns null rather than
+  // an empty block -- otherwise the turn would carry a stray blank line.
+  it("produces no block for an empty brief", () => {
+    expect(formatBriefBlock("")).toBe("");
+    expect(formatBriefBlock("  \n ")).toBe("");
   });
 });
 

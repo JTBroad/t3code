@@ -98,7 +98,13 @@ export interface AppHostPaths {
 export interface AppHostActivity {
   readonly kind: string;
   readonly summary: string;
-  readonly tone: "info" | "warning" | "error";
+  /**
+   * Restricted to the two tones an app has any business using. The timeline's
+   * full set includes `approval` and `tool`, which describe provider mechanics
+   * an app is not part of -- letting an app claim either would make its entries
+   * indistinguishable from the harness's own.
+   */
+  readonly tone: "info" | "error";
   readonly payload: Record<string, unknown>;
 }
 
