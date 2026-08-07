@@ -9,7 +9,6 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
-  pruneThreadOrder,
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
@@ -22,7 +21,6 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
-    threadOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -31,34 +29,6 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
 }
 
 describe("uiStateStore pure functions", () => {
-  it("drops ranks for keys the caller no longer reports as orderable", () => {
-    // The sidebar passes only *active* thread keys, so settling or snoozing a
-    // thread drops its rank and it returns at its date position rather than in
-    // a slot the user set long ago.
-    const state = makeUiState({ threadOrder: ["env-a:thread-1", "env-a:thread-2"] });
-
-    expect(pruneThreadOrder(state, ["env-a:thread-1"], ["env-a"]).threadOrder).toEqual([
-      "env-a:thread-1",
-    ]);
-  });
-
-  it("keeps ranks for environments that are not currently connected", () => {
-    // A disconnected environment reports no threads at all. Pruning against
-    // that absence would wipe the user's order on every reconnect.
-    const state = makeUiState({ threadOrder: ["env-a:thread-1", "env-b:thread-9"] });
-
-    expect(pruneThreadOrder(state, ["env-a:thread-1"], ["env-a"]).threadOrder).toEqual([
-      "env-a:thread-1",
-      "env-b:thread-9",
-    ]);
-  });
-
-  it("returns the same state when nothing needs pruning", () => {
-    const state = makeUiState({ threadOrder: ["env-a:thread-1"] });
-
-    expect(pruneThreadOrder(state, ["env-a:thread-1"], ["env-a"])).toBe(state);
-  });
-
   it("stores server timestamps without moving visit state backwards", () => {
     const threadId = ThreadId.make("thread-1");
     const initialState = makeUiState();
@@ -203,7 +173,6 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
-      threadOrder: [],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -323,7 +292,6 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
-      threadOrder: [],
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },

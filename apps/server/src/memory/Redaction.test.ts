@@ -61,7 +61,7 @@ describe("benign content is left alone", () => {
   it.each([
     ["a git SHA", "Fixed in bf177b205a1c4e8f9d2b3a6c7e0f1a2b3c4d5e6f"],
     ["a UUID", "Thread 3f2504e0-4f89-11d3-9a0c-0305e82c3301 resumed"],
-    ["a file path", "See apps/server/src/persistence/Migrations/036_MemoryAndDrive.ts"],
+    ["a file path", "See apps/server/src/persistence/Migrations/039_MemoryAndDrive.ts"],
     ["a URL", "Docs at https://github.com/JTBroad/t3code/blob/main/docs/README.md"],
     ["an email", "Reported by jack101091@gmail.com yesterday"],
     ["a semver", "Bumped @pierre/diffs to 1.3.0-beta.10 in the catalog"],
