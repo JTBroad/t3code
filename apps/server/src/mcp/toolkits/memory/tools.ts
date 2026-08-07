@@ -6,10 +6,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { AppHost } from "../../../apps/AppHost.ts";
 import { ServerConfig } from "../../../config.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
+// `AppHost` is how these tools reach core state (thread -> project attribution).
+// `SqlClient` is still here for the app's own index, not for core tables -- see
+// `ProjectResolution`, which no longer queries the projections directly.
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
   FileSystem.FileSystem,
@@ -17,6 +21,7 @@ const dependencies = [
   ServerConfig,
   ServerSettingsService,
   SqlClient.SqlClient,
+  AppHost,
 ];
 
 /**
