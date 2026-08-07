@@ -55,6 +55,7 @@ import Migration0038 from "./Migrations/038_ProjectionThreadsPinOrderKey.ts";
 // and migration numbers are the applied-order key, so ours moves rather than
 // collides.
 import Migration0039 from "./Migrations/039_MemoryAndDrive.ts";
+import Migration0040 from "./Migrations/040_ProjectionThreadsPinnedRepair.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -106,6 +107,7 @@ export const migrationEntries = [
   [37, "ProjectionTurnsKeysetIndex", Migration0037],
   [38, "ProjectionThreadsPinOrderKey", Migration0038],
   [39, "MemoryAndDrive", Migration0039],
+  [40, "ProjectionThreadsPinnedRepair", Migration0040],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

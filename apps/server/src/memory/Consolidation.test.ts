@@ -24,7 +24,7 @@ const layer = it.layer(Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layer
 const setup = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
   const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 36 });
+  yield* runMigrations({ toMigrationInclusive: 39 });
   yield* sql`DELETE FROM drive_artifacts`;
   const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-consolidate-" });
   yield* reindexAll({ memoryRoot });

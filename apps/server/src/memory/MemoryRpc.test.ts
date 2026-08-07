@@ -96,7 +96,7 @@ const layer = it.layer(
 
 const setup = Effect.fn(function* () {
   const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 36 });
+  yield* runMigrations({ toMigrationInclusive: 39 });
   yield* sql`DELETE FROM drive_artifacts`;
   yield* sql`DELETE FROM memory_notes`;
   yield* sql`DELETE FROM memory_note_links`;

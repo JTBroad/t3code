@@ -45,7 +45,7 @@ const note = (overrides: Partial<MemoryNote> = {}): MemoryNote => ({
  */
 const setup = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
-  yield* runMigrations({ toMigrationInclusive: 36 });
+  yield* runMigrations({ toMigrationInclusive: 39 });
   const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-notes-" });
   yield* reindexAll({ memoryRoot });
   return memoryRoot;
