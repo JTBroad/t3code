@@ -1,6 +1,36 @@
 # Sidebar apps: extracting Memory into a toggleable app
 
-Status: proposal. Nothing here is implemented yet.
+Status: implemented on `feat/sidebar-apps`, one commit per step. The plan below
+is the design as proposed; this section records where the implementation
+deliberately diverged from it.
+
+## As built: deviations worth knowing
+
+- **`AppHost` has no `appendThreadActivity`.** Seam 2 listed one, but seam 4's
+  design — the reactor appends activities from a hook's return value — means
+  nothing needs it. Adding it would also have made `AppHost` depend on the
+  orchestration engine, which depends on the reactor, which depends on the
+  registry: a layer cycle bought for an unused method.
+- **MCP toolkit registration stayed in `McpHttpServer`.** The registry decides
+  _whether_ an app's tools mount; it does not hold the layer. A toolkit's
+  registration layer carries its own handler requirements, and a heterogeneous
+  list of those cannot be expressed in one array without naming every app's
+  dependencies in the registry type. The `enabledApps` gate is read in both
+  places, so the toggle still governs tools.
+- **Disabling an app is enforced twice.** Registration is gated at boot so a
+  disabled app advertises no tools, and the handlers re-check per call so the
+  toggle also applies to MCP sessions that are already open.
+- **The settings UI still writes the deprecated core fields.** The app's own
+  `settings.json` takes precedence and the core values are honoured as a
+  fallback, so behaviour is correct either way. Moving the UI onto app-owned RPC
+  is the remaining piece of seam 7.
+- **Several memory helpers carry explicit `Effect` signatures.** Inference
+  collapses to `unknown` on both channels once these compose, and an `unknown`
+  requirement disqualifies every caller with an error that names no real service.
+- **`MemoryLegacyImport` was added, unplanned.** Step 5 assumed the store was
+  fully derivable. It is not, for one case: artifacts written before sidecars
+  existed carry provenance only in the old table, and a plain reindex would drop
+  it. The import writes those sidecars once before the first reindex.
 
 ## Why now
 
