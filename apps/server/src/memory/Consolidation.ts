@@ -29,7 +29,8 @@ import * as Path from "effect/Path";
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import { artifactsCreatedSince } from "./ArtifactStore.ts";
 import { DAILY_SCAFFOLD, rotateDaily } from "./DailyStore.ts";
-import { reindexAll, writeNote, type MemoryNote } from "./NoteStore.ts";
+import { MemoryIndex } from "./MemoryIndex.ts";
+import { writeNote, type MemoryNote } from "./NoteStore.ts";
 
 /**
  * Summaries live here. The note reindex ignores the whole directory.
@@ -175,7 +176,16 @@ export const runConsolidation = Effect.fn("memory.runConsolidation")(function* (
       const now = DateTime.formatIso(yield* DateTime.now);
 
       // Hand-edited files desync the index for at most one cycle.
-      yield* reindexAll({ memoryRoot: input.memoryRoot });
+      //
+      // Routed through MemoryIndex rather than calling reindexAll directly so
+      // this shares the one reindex lock with the watcher and with note writes.
+      // A full rebuild's `DELETE FROM memory_notes` landing mid-way through an
+      // incremental pass is exactly what that lock exists to prevent.
+      //
+      // Notes only, and for the root this run was given: rebuilding the drive
+      // index here would let a consolidation run drop artifact rows it never
+      // looked at.
+      yield* (yield* MemoryIndex).reindexNotesIn(input.memoryRoot);
 
       const rotated = yield* rotateDaily({ memoryRoot: input.memoryRoot, rotatedAt: now });
       if (!rotated) {

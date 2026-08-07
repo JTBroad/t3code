@@ -53,6 +53,14 @@ export const MemoryReadDailyResult = Schema.Struct({
 });
 
 export const MemorySearchInput = Schema.Struct({
+  query: Schema.optional(
+    Schema.String.pipe(
+      Schema.annotate({
+        description:
+          "Words to look for in note titles and bodies. Omit to list recent notes instead of searching.",
+      }),
+    ),
+  ),
   tag: Schema.optional(
     Schema.String.pipe(Schema.annotate({ description: "Only notes carrying this tag." })),
   ),
@@ -76,6 +84,9 @@ export const MemorySearchResult = Schema.Struct({
       scope: Schema.String,
       tags: Schema.Array(Schema.String),
       modifiedAt: Schema.String,
+      // Present only for a query search. Shows why the note matched, which is
+      // most of what makes a result usable without opening every hit.
+      snippet: Schema.optional(Schema.String),
     }),
   ),
 });
@@ -106,7 +117,7 @@ export const MemoryReadDailyTool = Tool.make("memory_read_daily", {
 
 export const MemorySearchTool = Tool.make("memory_search", {
   description:
-    "Search permanent notes by tag and scope. Notes for the current project rank ahead of user-level ones.",
+    "Search permanent notes by full text, tag, and scope. Pass `query` to search note titles and bodies; omit it to list recent notes. Notes for the current project rank ahead of user-level ones.",
   parameters: MemorySearchInput,
   success: MemorySearchResult,
   failure: McpCapabilityUnavailableError,

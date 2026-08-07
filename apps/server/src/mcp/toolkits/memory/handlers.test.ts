@@ -47,8 +47,10 @@ describe("memory toolkit surface", () => {
     expect(Context.get(MemoryAppendDailyTool.annotations, Tool.Readonly)).toBe(false);
   });
 
+  // Every one of these is optional, including `query`: omitting it lists recent
+  // notes rather than erroring, so "show me what's there" stays one call.
   it("keeps search filters optional so an unfiltered search is valid", () => {
-    expect([...parameterKeys(MemorySearchTool)].sort()).toEqual(["limit", "scope", "tag"]);
+    expect([...parameterKeys(MemorySearchTool)].sort()).toEqual(["limit", "query", "scope", "tag"]);
   });
 
   it("lets no tool choose the project bucket it writes into", () => {

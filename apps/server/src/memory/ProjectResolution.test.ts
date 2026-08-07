@@ -35,7 +35,7 @@ const seed = Effect.fn(function* (input: {
   readonly worktreePath?: string | undefined;
 }) {
   const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 39 });
+  yield* runMigrations({ toMigrationInclusive: 42 });
   yield* sql`DELETE FROM projection_threads`;
   yield* sql`DELETE FROM projection_projects`;
   yield* sql`

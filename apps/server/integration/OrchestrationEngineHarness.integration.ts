@@ -46,9 +46,7 @@ import {
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
-import * as AppHostLive from "../src/apps/AppHostLive.ts";
-import * as AppRegistryLive from "../src/apps/AppRegistryLive.ts";
-import * as AppTurnHooksRunner from "../src/apps/AppTurnHooksRunner.ts";
+import * as AppsLayer from "../src/apps/AppsLayer.ts";
 import * as RepositoryIdentityResolver from "../src/project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "../src/orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
@@ -389,12 +387,13 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(orchestrationReactorLayer),
       Layer.provideMerge(providerRegistryLayer),
+      // Above the persistence `provide` so the apps layer shares the harness's
+      // one SQL client rather than opening a second connection to the same file.
+      // Apps reach core through the host seam, and the reactor reaches apps
+      // through the hook runner; the continuity brief makes both load-bearing.
+      Layer.provideMerge(AppsLayer.layer),
       Layer.provide(persistenceLayer),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
-      // Apps reach core through the host seam; the reactor's continuity brief is
-      // the consumer that makes it load-bearing here.
-      Layer.provideMerge(AppHostLive.layer.pipe(Layer.provide(persistenceLayer))),
-      Layer.provideMerge(AppTurnHooksRunner.layer.pipe(Layer.provide(AppRegistryLive.layer))),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),

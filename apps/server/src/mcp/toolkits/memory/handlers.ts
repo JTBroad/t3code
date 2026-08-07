@@ -19,7 +19,7 @@ import { ServerConfig } from "../../../config.ts";
 import { writeArtifact } from "../../../memory/ArtifactStore.ts";
 import { appendDailyEntry, readDaily } from "../../../memory/DailyStore.ts";
 import { resolveDriveRoot, resolveMemoryRoot } from "../../../memory/MemoryPaths.ts";
-import { listNotes } from "../../../memory/NoteStore.ts";
+import { listNotes, searchNotes } from "../../../memory/NoteStore.ts";
 import { resolveProjectForThread } from "../../../memory/ProjectResolution.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -106,6 +106,7 @@ const handlers = {
   }),
 
   memory_search: Effect.fn("memory_search")(function* (input: {
+    readonly query?: string | undefined;
     readonly tag?: string | undefined;
     readonly scope?: "global" | "project" | undefined;
     readonly limit?: number | undefined;
@@ -115,13 +116,34 @@ const handlers = {
       Effect.orElseSucceed(() => null),
     );
 
+    const filters = {
+      ...(input.scope === undefined ? {} : { scope: input.scope }),
+      ...(project ? { projectSegment: project.projectSegment } : {}),
+      limit: input.limit ?? DEFAULT_SEARCH_LIMIT,
+    };
+
+    // Two different questions, so two different queries. A full-text search
+    // ranks by relevance and can say why a note matched; a bare listing ranks by
+    // recency. Faking one with the other would give the caller ranking that
+    // means nothing.
+    if (input.query !== undefined && input.query.trim().length > 0) {
+      const rows = yield* dieOnInfrastructureFailure(
+        searchNotes({ query: input.query, ...filters }),
+      );
+      return {
+        notes: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          scope: row.scope,
+          tags: parseTags(row.tags),
+          modifiedAt: row.modified_at,
+          snippet: row.snippet,
+        })),
+      };
+    }
+
     const rows = yield* dieOnInfrastructureFailure(
-      listNotes({
-        ...(input.tag === undefined ? {} : { tag: input.tag }),
-        ...(input.scope === undefined ? {} : { scope: input.scope }),
-        ...(project ? { projectSegment: project.projectSegment } : {}),
-        limit: input.limit ?? DEFAULT_SEARCH_LIMIT,
-      }),
+      listNotes({ ...(input.tag === undefined ? {} : { tag: input.tag }), ...filters }),
     );
 
     return {
