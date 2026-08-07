@@ -31,6 +31,7 @@ import { AppHost } from "./AppHost.ts";
 import { ServerAppRegistryTag, type ServerAppRegistry } from "./AppRegistry.ts";
 import { ServerConfig } from "../config.ts";
 import { memoryBeforeFirstUserMessage, MEMORY_APP_ID } from "../memory/MemoryApp.ts";
+import { MemoryDb } from "../memory/MemoryDb.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 /**
@@ -43,6 +44,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 type BuiltInAppServices =
   | AppHost
   | FileSystem.FileSystem
+  | MemoryDb
   | Path.Path
   | ServerConfig
   | ServerSettingsService

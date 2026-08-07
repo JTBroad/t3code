@@ -32,8 +32,15 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { APP_ID_MEMORY } from "@t3tools/contracts";
 
 import { reindexDrive } from "./ArtifactStore.ts";
+import { importLegacyArtifactSidecars } from "./MemoryLegacyImport.ts";
+import type { MemoryDb } from "./MemoryDb.ts";
+import { resolveAppPaths } from "../apps/AppPaths.ts";
+import { readAppSettings } from "../apps/AppSettings.ts";
 import { isReservedMemoryFile } from "./DailyStore.ts";
 import { resolveDriveRoot, resolveMemoryRoot } from "./MemoryPaths.ts";
 import { reindexAll, reindexNoteFile } from "./NoteStore.ts";
@@ -92,6 +99,9 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const settingsService = yield* ServerSettingsService;
   const config = yield* ServerConfig;
+  // The core database, used for exactly one thing: rescuing provenance that
+  // predates the sidecars. Every other query in this app goes to `MemoryDb`.
+  const coreSql = yield* SqlClient.SqlClient;
 
   /**
    * One permit, held by every reindex path.
@@ -101,16 +111,47 @@ const make = Effect.gen(function* () {
    */
   const lock = yield* Semaphore.make(1);
 
+  /**
+   * Captured so the service's methods carry no requirements of their own.
+   *
+   * A service whose methods still demand `MemoryDb` would force every caller --
+   * consolidation, the RPC handlers, the reactor -- to know which database the
+   * memory app uses, which is exactly what the app store is supposed to hide.
+   */
+  const context = yield* Effect.context<FileSystem.FileSystem | Path.Path | MemoryDb>();
+
   const roots = Effect.gen(function* () {
     const settings = yield* Effect.orElseSucceed(settingsService.getSettings, () => null);
+    // App settings win over the inherited core values; see `resolveMemoryRoot`.
+    const appSettings = yield* readAppSettings({
+      stateDir: config.stateDir,
+      appId: APP_ID_MEMORY,
+    });
     return {
-      memoryRoot: settings ? resolveMemoryRoot(settings, config) : config.memoryDir,
-      driveRoot: settings ? resolveDriveRoot(settings, config) : config.driveDir,
+      memoryRoot: settings ? resolveMemoryRoot(settings, config, appSettings) : config.memoryDir,
+      driveRoot: settings ? resolveDriveRoot(settings, config, appSettings) : config.driveDir,
     };
   });
 
   const reindexEverything = Effect.gen(function* () {
     const { memoryRoot, driveRoot } = yield* roots;
+
+    // Before the first reindex of a store that used to live in the core
+    // database: artifacts written before sidecars existed have provenance only
+    // in the old table, and reindexing would skip them for having no sidecar.
+    // Runs once, guarded by a marker file in the app directory.
+    const appPaths = resolveAppPaths({ stateDir: config.stateDir, appId: APP_ID_MEMORY });
+    if (appPaths !== null) {
+      const imported = yield* importLegacyArtifactSidecars({
+        coreSql,
+        driveRoot,
+        appDataDirectory: appPaths.dataDirectory,
+      });
+      if (imported.sidecarsWritten > 0) {
+        yield* Effect.logInfo("imported legacy drive provenance", imported);
+      }
+    }
+
     const notes = yield* reindexAll({ memoryRoot });
     const artifacts = yield* reindexDrive({ driveRoot });
 
@@ -196,10 +237,11 @@ const make = Effect.gen(function* () {
   );
 
   return {
-    reindexEverything,
-    reindexNotesIn,
-    reindexNote,
-    watch,
+    reindexEverything: reindexEverything.pipe(Effect.provide(context)),
+    reindexNotesIn: (memoryRoot: string) =>
+      reindexNotesIn(memoryRoot).pipe(Effect.provide(context)),
+    reindexNote: (fileName: string) => reindexNote(fileName).pipe(Effect.provide(context)),
+    watch: watch.pipe(Effect.provide(context)),
   } satisfies MemoryIndex["Service"];
 });
 

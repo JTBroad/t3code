@@ -32,24 +32,47 @@ const trimmedOrNull = (value: string): string | null => {
   return trimmed.length === 0 ? null : trimmed;
 };
 
+/** Settings keys inside the memory app's own `settings.json`. */
+export const MEMORY_ROOT_SETTING_KEY = "memoryRootDirectory";
+export const DRIVE_ROOT_SETTING_KEY = "driveRootDirectory";
+
 /**
- * Resolve the memory root: the configured setting when set, otherwise the
- * `stateDir`-derived default. Never the home directory -- see `deriveServerPaths`.
+ * Resolve the memory root.
+ *
+ * Precedence: the app's own settings file, then the value inherited from core
+ * settings, then the `stateDir`-derived default. Never the home directory -- see
+ * `deriveServerPaths`.
+ *
+ * The inherited step is not vestigial. These keys lived in core settings before
+ * apps owned their own, and someone who set a custom root must keep it: silently
+ * falling back to the default would make their whole vault look empty.
  */
 export function resolveMemoryRoot(
   settings: Pick<ServerSettings, "memoryRootDirectory">,
   derivedPaths: Pick<ServerDerivedPaths, "memoryDir">,
+  appSettings?: Record<string, unknown> | undefined,
 ): string {
-  return trimmedOrNull(settings.memoryRootDirectory) ?? derivedPaths.memoryDir;
+  return (
+    trimmedOrNull(asSettingString(appSettings?.[MEMORY_ROOT_SETTING_KEY])) ??
+    trimmedOrNull(settings.memoryRootDirectory) ??
+    derivedPaths.memoryDir
+  );
 }
 
 /** Resolve the drive root, with the same precedence as {@link resolveMemoryRoot}. */
 export function resolveDriveRoot(
   settings: Pick<ServerSettings, "driveRootDirectory">,
   derivedPaths: Pick<ServerDerivedPaths, "driveDir">,
+  appSettings?: Record<string, unknown> | undefined,
 ): string {
-  return trimmedOrNull(settings.driveRootDirectory) ?? derivedPaths.driveDir;
+  return (
+    trimmedOrNull(asSettingString(appSettings?.[DRIVE_ROOT_SETTING_KEY])) ??
+    trimmedOrNull(settings.driveRootDirectory) ??
+    derivedPaths.driveDir
+  );
 }
+
+const asSettingString = (value: unknown): string => (typeof value === "string" ? value : "");
 
 /**
  * Normalize a caller-supplied relative path, rejecting anything that could

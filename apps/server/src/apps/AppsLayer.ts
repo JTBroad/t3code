@@ -18,6 +18,7 @@ import * as AppHostLive from "./AppHostLive.ts";
 import * as AppRegistryLive from "./AppRegistryLive.ts";
 import * as AppTurnHooksRunner from "./AppTurnHooksRunner.ts";
 import * as MemoryIndex from "../memory/MemoryIndex.ts";
+import * as MemoryDb from "../memory/MemoryDb.ts";
 
 /**
  * `provideMerge` throughout, not `provide`: the host and the registry are both
@@ -33,4 +34,8 @@ export const layer = AppTurnHooksRunner.layer.pipe(
   // consolidation needs the service and the reactor's brief needs consolidation's
   // output.
   Layer.provideMerge(MemoryIndex.startupLayer),
+  // The memory app's own SQLite file and migration sequence. Provided last so
+  // everything above it draws on the app store rather than core's database --
+  // which is exactly the separation this layer exists to make true.
+  Layer.provideMerge(MemoryDb.layer),
 );

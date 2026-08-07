@@ -18,7 +18,7 @@ import * as NodeCrypto from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { MemoryDb } from "./MemoryDb.ts";
 
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import { resolveWithinRoot } from "./MemoryPaths.ts";
@@ -182,7 +182,7 @@ export const writeArtifact = Effect.fn("memory.writeArtifact")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
 
   const relativePath = artifactRelativePath(input);
   const absolutePath = resolveWithinRoot({ root: input.driveRoot, relativePath });
@@ -254,7 +254,7 @@ export const reindexDrive = Effect.fn("memory.reindexDrive")(function* (input: {
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
 
   if (!(yield* fs.exists(input.driveRoot))) {
     return { indexed: 0, skipped: [] } satisfies DriveReindexResult;
@@ -317,7 +317,7 @@ export const listArtifacts = Effect.fn("memory.listArtifacts")(function* (input:
   readonly includeArchived?: boolean | undefined;
   readonly limit?: number | undefined;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const projectSegment = input.projectSegment ?? null;
   const includeArchived = input.includeArchived === true ? 1 : 0;
 
@@ -334,7 +334,7 @@ export const listArtifacts = Effect.fn("memory.listArtifacts")(function* (input:
 
 /** Look one up by id, archived or not. */
 export const getArtifact = Effect.fn("memory.getArtifact")(function* (id: string) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const rows = yield* sql<ArtifactRecord>`
     SELECT id, relative_path, project_segment, kind, byte_size, content_sha256,
            thread_id, turn_id, checkpoint_ref, created_at, archived_at
@@ -360,7 +360,7 @@ export const archiveArtifact = Effect.fn("memory.archiveArtifact")(function* (in
    */
   readonly driveRoot?: string | undefined;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const fs = yield* FileSystem.FileSystem;
 
   const existing = yield* sql<{ readonly relative_path: string }>`
@@ -413,7 +413,7 @@ export interface CitingNoteRow {
  * "why does the agent believe this?" has no clickable answer.
  */
 export const notesCiting = Effect.fn("memory.notesCiting")(function* (artifactId: string) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   return yield* sql<CitingNoteRow>`
     SELECT sources.note_id, notes.title, sources.relation, sources.context
     FROM memory_note_sources AS sources
@@ -428,7 +428,7 @@ export const artifactsCreatedSince = Effect.fn("memory.artifactsCreatedSince")(f
   readonly since: string | null;
   readonly limit?: number | undefined;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   return yield* sql<ArtifactRecord>`
     SELECT id, relative_path, project_segment, kind, byte_size, content_sha256,
            thread_id, turn_id, checkpoint_ref, created_at, archived_at

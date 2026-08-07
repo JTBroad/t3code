@@ -110,6 +110,8 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as MemoryDb from "./memory/MemoryDb.ts";
+import * as MemoryIndex from "./memory/MemoryIndex.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderInstanceRegistry from "./provider/Services/ProviderInstanceRegistry.ts";
@@ -955,9 +957,12 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provideMerge(makeAuthTestLayer()),
       Layer.provideMerge(ServerSecretStore.layer),
-      // The memory RPC handlers read the note and artifact indexes directly, so
-      // the router needs a SQL client of its own rather than one buried inside
-      // the auth layer.
+      // The memory RPC handlers read the app's own note and artifact indexes, so
+      // the router needs the memory store and its index service. `MemoryDb` is
+      // separate from the core SQL client below on purpose -- that separation is
+      // the point of the per-app store.
+      Layer.provideMerge(MemoryIndex.layer.pipe(Layer.provide(ServerSettings.layerTest()))),
+      Layer.provideMerge(MemoryDb.layerTest),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provideMerge(FetchHttpClient.layer),

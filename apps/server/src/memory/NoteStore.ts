@@ -18,7 +18,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { MemoryDb } from "./MemoryDb.ts";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { writeFileStringAtomically } from "../atomicWrite.ts";
@@ -202,7 +202,7 @@ const notePath = (memoryRoot: string, id: string) =>
  * whole title set is small enough to hold.
  */
 const titleCandidates = Effect.fn("memory.titleCandidates")(function* () {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const rows = yield* sql<{ readonly id: string; readonly title: string }>`
     SELECT id, title FROM memory_notes ORDER BY modified_at DESC
   `;
@@ -231,7 +231,7 @@ const indexWikilinks = Effect.fn("memory.indexWikilinks")(function* (input: {
   readonly note: MemoryNote;
   readonly candidatesByTitle: ReadonlyMap<string, ReadonlyArray<string>>;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const resolutions = resolveWikilinks({
     fromNoteId: input.note.id,
     targets: parseWikilinks(input.note.body),
@@ -266,7 +266,7 @@ const indexWikilinks = Effect.fn("memory.indexWikilinks")(function* (input: {
 const resolveDanglingWikilinksTo = Effect.fn("memory.resolveDanglingWikilinks")(function* (
   note: MemoryNote,
 ) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   yield* sql`
     UPDATE memory_note_wikilinks
     SET to_note_id = ${note.id}
@@ -278,7 +278,7 @@ const resolveDanglingWikilinksTo = Effect.fn("memory.resolveDanglingWikilinks")(
 
 /** Replace this note's index rows. Callers must already hold the file write. */
 const indexNote = Effect.fn("memory.indexNote")(function* (note: MemoryNote) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
 
   yield* sql`
     INSERT INTO memory_notes
@@ -390,7 +390,7 @@ export const listNotes = Effect.fn("memory.listNotes")(function* (input: {
   readonly tag?: string | undefined;
   readonly limit?: number | undefined;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const scope = input.scope ?? null;
   const projectSegment = input.projectSegment ?? null;
   const status = input.status ?? null;
@@ -458,7 +458,7 @@ export const searchNotes = Effect.fn("memory.searchNotes")(function* (input: {
   readonly status?: NoteStatus | undefined;
   readonly limit?: number | undefined;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   if (input.query.trim().length === 0) {
     return [] as ReadonlyArray<NoteSearchRow>;
   }
@@ -497,7 +497,7 @@ export interface WikilinkBacklinkRow {
 export const wikilinkBacklinksFor = Effect.fn("memory.wikilinkBacklinksFor")(function* (
   id: string,
 ) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   return yield* sql<WikilinkBacklinkRow>`
     SELECT links.from_note_id, links.target_title, links.is_ambiguous, notes.title
     FROM memory_note_wikilinks AS links
@@ -521,7 +521,7 @@ export interface UnresolvedWikilinkRow {
 export const unresolvedWikilinks = Effect.fn("memory.unresolvedWikilinks")(function* (input: {
   readonly limit?: number | undefined;
 }) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   return yield* sql<UnresolvedWikilinkRow>`
     SELECT target_title, COUNT(*) AS reference_count
     FROM memory_note_wikilinks
@@ -541,7 +541,7 @@ export interface BacklinkRow {
 
 /** Which notes link to this one. Indexed on `to_note_id`, never a scan. */
 export const backlinksFor = Effect.fn("memory.backlinksFor")(function* (id: string) {
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   return yield* sql<BacklinkRow>`
     SELECT links.from_note_id, links.relation, links.context, notes.title
     FROM memory_note_links AS links
@@ -569,7 +569,7 @@ export const reindexAll = Effect.fn("memory.reindexAll")(function* (input: {
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
 
   if (!(yield* fs.exists(input.memoryRoot))) {
     return { indexed: 0, skipped: [] } satisfies ReindexResult;
@@ -630,7 +630,7 @@ export const reindexNoteFile = Effect.fn("memory.reindexNoteFile")(function* (in
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const sql = yield* SqlClient.SqlClient;
+  const sql = yield* MemoryDb;
   const filePath = path.join(input.memoryRoot, input.fileName);
 
   // A note deleted on disk must leave the index. Its id is not recoverable from

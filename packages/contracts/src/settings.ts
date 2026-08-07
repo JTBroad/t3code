@@ -635,6 +635,16 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // DEPRECATED, kept for compatibility. These now live in the memory app's own
+  // settings file at <stateDir>/apps/memory/settings.json, which takes
+  // precedence; the values here are still honoured as a fallback so an existing
+  // custom root keeps working and nobody's vault appears to empty itself.
+  //
+  // App-specific fields do not belong in the shared schema: every one of them is
+  // a future fork-versus-upstream conflict, and an app that is disabled or
+  // absent would still carry its fields here forever. `enabledApps` below is the
+  // sole exception, being the bootstrap that decides which apps load at all.
+  //
   // Root for the shared Zettelkasten memory store. Deliberately not
   // per-project: how the user works is a user-level fact, and per-project
   // stores would scatter those notes back into the repos they describe.

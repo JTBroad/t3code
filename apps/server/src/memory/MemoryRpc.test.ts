@@ -2,13 +2,12 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import * as ServerConfig from "../config.ts";
-import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import * as MemoryDb from "./MemoryDb.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { writeArtifact } from "./ArtifactStore.ts";
 import * as MemoryIndex from "./MemoryIndex.ts";
@@ -98,13 +97,14 @@ const layer = it.layer(
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-memory-rpc-" }),
       ),
     ),
-    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory())),
+    Layer.provideMerge(
+      Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory(), MemoryDb.layerTest),
+    ),
   ),
 );
 
 const setup = Effect.fn(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 42 });
+  const sql = yield* MemoryDb.MemoryDb;
   yield* sql`DELETE FROM drive_artifacts`;
   yield* sql`DELETE FROM memory_notes`;
   yield* sql`DELETE FROM memory_note_links`;

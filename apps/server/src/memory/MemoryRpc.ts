@@ -12,6 +12,7 @@
  *
  * @module MemoryRpc
  */
+import * as FileSystem from "effect/FileSystem";
 import * as Effect from "effect/Effect";
 
 import {
@@ -29,7 +30,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { getArtifact, listArtifacts, notesCiting, type ArtifactRecord } from "./ArtifactStore.ts";
 import { parseDailyEntries, runConsolidation } from "./Consolidation.ts";
 import { readDaily } from "./DailyStore.ts";
-import { resolveMemoryRoot } from "./MemoryPaths.ts";
+import { memoryRoots } from "./MemoryRoots.ts";
 import {
   backlinksFor,
   listNotes,
@@ -57,11 +58,14 @@ const asOperationError = <A, E, R>(operation: string, effect: Effect.Effect<A, E
  * Only the memory root is needed here: artifact reads go through the index
  * rather than the filesystem, so the drive root never enters these handlers.
  */
-const memoryRootFor = Effect.fn("memory.rpcRoot")(function* () {
-  const settings = yield* Effect.orDie((yield* ServerSettingsService).getSettings);
-  const config = yield* ServerConfig;
-  return resolveMemoryRoot(settings, config);
-});
+// Annotated rather than inferred: without it, inference collapses to `unknown`
+// on both channels for every handler that yields this, which then fails the RPC
+// group's context check with an error that names no real service.
+const memoryRootFor: () => Effect.Effect<
+  string,
+  never,
+  FileSystem.FileSystem | ServerConfig | ServerSettingsService
+> = () => Effect.map(memoryRoots(), (roots) => roots.memoryRoot);
 
 /**
  * Tags parse defensively.

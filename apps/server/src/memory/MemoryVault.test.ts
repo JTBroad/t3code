@@ -10,10 +10,9 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import * as MemoryDb from "./MemoryDb.ts";
 import {
   artifactSidecarPath,
   parseArtifactSidecar,
@@ -33,7 +32,11 @@ import {
   type MemoryNote,
 } from "./NoteStore.ts";
 
-const layer = it.layer(Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory()));
+// The memory app owns its store now, so tests run the app's migration
+// sequence against an in-memory app database rather than core's.
+const layer = it.layer(
+  Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory(), MemoryDb.layerTest),
+);
 
 const note = (overrides: Partial<MemoryNote> = {}): MemoryNote => ({
   id: "n_base",
@@ -53,7 +56,6 @@ const note = (overrides: Partial<MemoryNote> = {}): MemoryNote => ({
 
 const setup = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
-  yield* runMigrations({ toMigrationInclusive: 42 });
   const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-vault-" });
   const driveRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-drive-" });
   yield* reindexAll({ memoryRoot });
@@ -210,7 +212,7 @@ layer("wikilinks", (it) => {
 
       yield* reindexAll({ memoryRoot });
 
-      const sql = yield* SqlClient.SqlClient;
+      const sql = yield* MemoryDb.MemoryDb;
       const rows = yield* sql<{
         readonly to_note_id: string | null;
         readonly is_ambiguous: number;
@@ -265,7 +267,7 @@ layer("the index is disposable", (it) => {
   // something and none of that is true.
   it.effect("reproduces every note and artifact row after the index is dropped", () =>
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
+      const sql = yield* MemoryDb.MemoryDb;
       const { memoryRoot, driveRoot } = yield* setup();
 
       yield* writeNote({

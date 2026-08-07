@@ -3,12 +3,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import * as MemoryDb from "./MemoryDb.ts";
 import {
   archiveArtifact,
   artifactsCreatedSince,
@@ -19,13 +18,16 @@ import {
 } from "./ArtifactStore.ts";
 import { reindexAll, writeNote, type MemoryNote } from "./NoteStore.ts";
 
-const layer = it.layer(Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory()));
+// The memory app owns its store now, so tests run the app's migration
+// sequence against an in-memory app database rather than core's.
+const layer = it.layer(
+  Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory(), MemoryDb.layerTest),
+);
 
 /** Fresh temp drive root, schema migrated, index cleared between tests. */
 const setup = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 42 });
+  const sql = yield* MemoryDb.MemoryDb;
   yield* sql`DELETE FROM drive_artifacts`;
   const driveRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-drive-" });
   const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-drive-notes-" });

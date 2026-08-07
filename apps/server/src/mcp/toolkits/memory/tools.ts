@@ -4,23 +4,24 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { MemoryDb } from "../../../memory/MemoryDb.ts";
 
 import { AppHost } from "../../../apps/AppHost.ts";
 import { ServerConfig } from "../../../config.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
-// `AppHost` is how these tools reach core state (thread -> project attribution).
-// `SqlClient` is still here for the app's own index, not for core tables -- see
-// `ProjectResolution`, which no longer queries the projections directly.
+// `AppHost` is how these tools reach core state (thread -> project attribution),
+// and `MemoryDb` is the app's own store. Note the absence of `SqlClient`: these
+// tools have no handle on the core database at all, which is the separation the
+// per-app store exists to make true.
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
   FileSystem.FileSystem,
   Path.Path,
   ServerConfig,
   ServerSettingsService,
-  SqlClient.SqlClient,
+  MemoryDb,
   AppHost,
 ];
 

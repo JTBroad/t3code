@@ -6,8 +6,8 @@ import * as Path from "effect/Path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import * as MemoryDb from "./MemoryDb.ts";
 import {
   backlinksFor,
   listNotes,
@@ -19,7 +19,11 @@ import {
   writeNote,
 } from "./NoteStore.ts";
 
-const layer = it.layer(Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory()));
+// The memory app owns its store now, so tests run the app's migration
+// sequence against an in-memory app database rather than core's.
+const layer = it.layer(
+  Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory(), MemoryDb.layerTest),
+);
 
 const note = (overrides: Partial<MemoryNote> = {}): MemoryNote => ({
   id: "202608011412",
@@ -45,7 +49,6 @@ const note = (overrides: Partial<MemoryNote> = {}): MemoryNote => ({
  */
 const setup = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
-  yield* runMigrations({ toMigrationInclusive: 42 });
   const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-notes-" });
   yield* reindexAll({ memoryRoot });
   return memoryRoot;

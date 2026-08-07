@@ -18,7 +18,9 @@ import * as Effect from "effect/Effect";
 import { ServerConfig } from "../../../config.ts";
 import { writeArtifact } from "../../../memory/ArtifactStore.ts";
 import { appendDailyEntry, readDaily } from "../../../memory/DailyStore.ts";
-import { resolveDriveRoot, resolveMemoryRoot } from "../../../memory/MemoryPaths.ts";
+import * as FileSystem from "effect/FileSystem";
+
+import { memoryRoots } from "../../../memory/MemoryRoots.ts";
 import { listNotes, searchNotes } from "../../../memory/NoteStore.ts";
 import { resolveProjectForThread } from "../../../memory/ProjectResolution.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
@@ -35,12 +37,24 @@ const DEFAULT_SEARCH_LIMIT = 20;
 const dieOnInfrastructureFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.orDie(effect);
 
-/** Where the shared memory store lives for this server. */
-const memoryRoot = Effect.fn("memory.root")(function* () {
-  const settings = yield* dieOnInfrastructureFailure((yield* ServerSettingsService).getSettings);
-  const config = yield* ServerConfig;
-  return resolveMemoryRoot(settings, config);
-});
+/**
+ * Where the shared memory store lives for this server.
+ *
+ * A plain combinator rather than `Effect.fn`: wrapping this in a traced
+ * generator collapses inference on both channels to `unknown`, which then
+ * disqualifies every handler that calls it.
+ */
+const memoryRoot: () => Effect.Effect<
+  string,
+  never,
+  FileSystem.FileSystem | ServerConfig | ServerSettingsService
+> = () => Effect.map(memoryRoots(), (roots) => roots.memoryRoot);
+
+const driveRoot: () => Effect.Effect<
+  string,
+  never,
+  FileSystem.FileSystem | ServerConfig | ServerSettingsService
+> = () => Effect.map(memoryRoots(), (roots) => roots.driveRoot);
 
 /**
  * Require both the session grant and the app being switched on.
@@ -54,7 +68,11 @@ const memoryRoot = Effect.fn("memory.root")(function* () {
  * model's side "this tool is not available to you" is exactly what happened, and
  * a disabled app is not something it can act on differently.
  */
-const requireMemoryApp = Effect.fn("memory.requireApp")(function* () {
+const requireMemoryApp: () => Effect.Effect<
+  McpInvocationContext.McpInvocationScope,
+  McpCapabilityUnavailableError,
+  McpInvocationContext.McpInvocationContext | ServerSettingsService
+> = Effect.fn("memory.requireApp")(function* () {
   const scope = yield* McpInvocationContext.requireMcpCapability("memory");
   const settings = yield* dieOnInfrastructureFailure((yield* ServerSettingsService).getSettings);
 
@@ -162,9 +180,7 @@ const handlers = {
     readonly kind?: string | undefined;
   }) {
     const scope = yield* requireMemoryApp();
-    const settings = yield* dieOnInfrastructureFailure((yield* ServerSettingsService).getSettings);
-    const config = yield* ServerConfig;
-    const driveRoot = resolveDriveRoot(settings, config);
+    const resolvedDriveRoot = yield* driveRoot();
 
     const project = yield* resolveProjectForThread(scope.threadId).pipe(
       Effect.orElseSucceed(() => null),
@@ -174,7 +190,7 @@ const handlers = {
     // see: it asked to write a specific file and no file exists afterwards.
     const written = yield* dieOnInfrastructureFailure(
       writeArtifact({
-        driveRoot,
+        driveRoot: resolvedDriveRoot,
         projectSegment: project?.projectSegment ?? null,
         repositoryPath: project?.repositoryPath ?? null,
         relativePath: input.relativePath,

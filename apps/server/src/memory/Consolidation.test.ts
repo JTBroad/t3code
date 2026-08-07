@@ -3,13 +3,12 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import * as ServerConfig from "../config.ts";
-import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import * as MemoryDb from "./MemoryDb.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { appendDailyEntry, readDaily } from "./DailyStore.ts";
 import * as MemoryIndex from "./MemoryIndex.ts";
@@ -32,14 +31,15 @@ const layer = it.layer(
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-consolidate-cfg-" }),
       ),
     ),
-    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory())),
+    Layer.provideMerge(
+      Layer.mergeAll(NodeServices.layer, NodeSqliteClient.layerMemory(), MemoryDb.layerTest),
+    ),
   ),
 );
 
 const setup = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 42 });
+  const sql = yield* MemoryDb.MemoryDb;
   yield* sql`DELETE FROM drive_artifacts`;
   const memoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-consolidate-" });
   yield* reindexAll({ memoryRoot });
@@ -199,7 +199,7 @@ layer("consolidation", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const memoryRoot = yield* setup();
-        const sql = yield* SqlClient.SqlClient;
+        const sql = yield* MemoryDb.MemoryDb;
         yield* sql`
           INSERT INTO drive_artifacts
             (id, relative_path, project_segment, kind, byte_size, content_sha256, created_at)

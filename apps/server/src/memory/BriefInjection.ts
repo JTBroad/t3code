@@ -34,12 +34,17 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
+import type { PlatformError } from "effect/PlatformError";
+import type { SqlError } from "effect/unstable/sql/SqlError";
+
+import type { AppHost } from "../apps/AppHost.ts";
 import { ServerConfig } from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SUMMARIES_DIRNAME } from "./Consolidation.ts";
 import { buildThemesSection, composeBrief } from "./ContinuityBrief.ts";
 import { DAILY_SCAFFOLD, readDaily } from "./DailyStore.ts";
-import { resolveMemoryRoot } from "./MemoryPaths.ts";
+import type { MemoryDb } from "./MemoryDb.ts";
+import { memoryRoots } from "./MemoryRoots.ts";
 import { resolveProjectForThread } from "./ProjectResolution.ts";
 
 /**
@@ -151,12 +156,17 @@ export const readLatestSummary = Effect.fn("memory.readLatestSummary")(function*
  * `identity` is left unset -- no store of long-lived user facts exists yet, and
  * an empty section is omitted rather than emitted as a bare header.
  */
-export const buildBriefForThread = Effect.fn("memory.buildBriefForThread")(function* (input: {
+// Annotated rather than inferred: this composes enough effects that inference
+// collapses to `unknown` on both channels, and an `unknown` requirement silently
+// disqualifies the app hook that calls it.
+export const buildBriefForThread: (input: {
   readonly threadId: string;
-}) {
-  const settings = yield* (yield* ServerSettingsService).getSettings;
-  const config = yield* ServerConfig;
-  const memoryRoot = resolveMemoryRoot(settings, config);
+}) => Effect.Effect<
+  string,
+  PlatformError | SqlError,
+  AppHost | FileSystem.FileSystem | MemoryDb | Path.Path | ServerConfig | ServerSettingsService
+> = Effect.fn("memory.buildBriefForThread")(function* (input: { readonly threadId: string }) {
+  const { memoryRoot } = yield* memoryRoots();
 
   // Attribution is best-effort. An unresolvable project means themes rank by
   // recency alone, which is a worse brief but still a valid one.
