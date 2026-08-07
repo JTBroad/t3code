@@ -28,6 +28,7 @@ export * from "./review.ts";
 export * from "./preview.ts";
 export * from "./mcp.ts";
 export * from "./memory.ts";
+export * from "./apps.ts";
 export * from "./previewAutomation.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";

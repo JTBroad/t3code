@@ -137,6 +137,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
   },
   {
+    id: "sidebar-apps",
+    title: "Sidebar apps",
+    to: "/settings/general",
+  },
+  {
     id: "memory-root-directory",
     title: "Memory root directory",
     to: "/settings/general",

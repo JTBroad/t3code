@@ -1,8 +1,8 @@
 /**
  * Memory toolkit handlers.
  *
- * Every handler opens with `requireMcpCapability("memory")`, so a session
- * without the grant cannot reach the store at all.
+ * Every handler opens with `requireMemoryApp()`, so neither a session without the
+ * grant nor an environment with the app switched off can reach the store at all.
  *
  * The important property here is that provenance is taken from the invocation
  * scope, never from tool arguments. The scope is issued server-side when the
@@ -11,6 +11,7 @@
  *
  * @module memory/handlers
  */
+import { APP_ID_MEMORY, isAppEnabled, McpCapabilityUnavailableError } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
@@ -41,11 +42,40 @@ const memoryRoot = Effect.fn("memory.root")(function* () {
   return resolveMemoryRoot(settings, config);
 });
 
+/**
+ * Require both the session grant and the app being switched on.
+ *
+ * The toolkit is registered at boot, so a session opened while Memory was
+ * enabled keeps its tools after the user disables the app. Checking here is what
+ * makes the toggle take effect immediately: an agent must not go on writing to a
+ * store the user believes they switched off.
+ *
+ * Reported as a capability denial rather than a new error type -- from the
+ * model's side "this tool is not available to you" is exactly what happened, and
+ * a disabled app is not something it can act on differently.
+ */
+const requireMemoryApp = Effect.fn("memory.requireApp")(function* () {
+  const scope = yield* McpInvocationContext.requireMcpCapability("memory");
+  const settings = yield* dieOnInfrastructureFailure((yield* ServerSettingsService).getSettings);
+
+  if (!isAppEnabled({ enabledApps: settings.enabledApps, appId: APP_ID_MEMORY })) {
+    return yield* new McpCapabilityUnavailableError({
+      capability: "memory",
+      environmentId: scope.environmentId,
+      threadId: scope.threadId,
+      providerSessionId: scope.providerSessionId,
+      providerInstanceId: scope.providerInstanceId,
+    });
+  }
+
+  return scope;
+});
+
 const handlers = {
   memory_append_daily: Effect.fn("memory_append_daily")(function* (input: {
     readonly body: string;
   }) {
-    const scope = yield* McpInvocationContext.requireMcpCapability("memory");
+    const scope = yield* requireMemoryApp();
     const root = yield* memoryRoot();
 
     // Attribution is best-effort: an observation with no resolvable project is
@@ -70,7 +100,7 @@ const handlers = {
   }),
 
   memory_read_daily: Effect.fn("memory_read_daily")(function* () {
-    yield* McpInvocationContext.requireMcpCapability("memory");
+    yield* requireMemoryApp();
     const root = yield* memoryRoot();
     return { contents: yield* dieOnInfrastructureFailure(readDaily({ memoryRoot: root })) };
   }),
@@ -80,7 +110,7 @@ const handlers = {
     readonly scope?: "global" | "project" | undefined;
     readonly limit?: number | undefined;
   }) {
-    const scope = yield* McpInvocationContext.requireMcpCapability("memory");
+    const scope = yield* requireMemoryApp();
     const project = yield* resolveProjectForThread(scope.threadId).pipe(
       Effect.orElseSucceed(() => null),
     );
@@ -109,7 +139,7 @@ const handlers = {
     readonly contents: string;
     readonly kind?: string | undefined;
   }) {
-    const scope = yield* McpInvocationContext.requireMcpCapability("memory");
+    const scope = yield* requireMemoryApp();
     const settings = yield* dieOnInfrastructureFailure((yield* ServerSettingsService).getSettings);
     const config = yield* ServerConfig;
     const driveRoot = resolveDriveRoot(settings, config);

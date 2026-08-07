@@ -25,6 +25,7 @@ import { Route as SettingsBetaRouteImport } from './routes/settings.beta'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ConnectCallbackRouteImport } from './routes/connect_.callback'
+import { Route as AppsAppIdRouteImport } from './routes/apps.$appId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -107,6 +108,11 @@ const ConnectCallbackRoute = ConnectCallbackRouteImport.update({
   path: '/connect/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsAppIdRoute = AppsAppIdRouteImport.update({
+  id: '/apps/$appId',
+  path: '/apps/$appId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/apps/$appId': typeof AppsAppIdRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -143,6 +150,7 @@ export interface FileRoutesByTo {
   '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/apps/$appId': typeof AppsAppIdRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -164,6 +172,7 @@ export interface FileRoutesById {
   '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/apps/$appId': typeof AppsAppIdRoute
   '/connect_/callback': typeof ConnectCallbackRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -186,6 +195,7 @@ export interface FileRouteTypes {
     | '/memory'
     | '/pair'
     | '/settings'
+    | '/apps/$appId'
     | '/connect/callback'
     | '/settings/appearance'
     | '/settings/archived'
@@ -204,6 +214,7 @@ export interface FileRouteTypes {
     | '/memory'
     | '/pair'
     | '/settings'
+    | '/apps/$appId'
     | '/connect/callback'
     | '/settings/appearance'
     | '/settings/archived'
@@ -224,6 +235,7 @@ export interface FileRouteTypes {
     | '/memory'
     | '/pair'
     | '/settings'
+    | '/apps/$appId'
     | '/connect_/callback'
     | '/settings/appearance'
     | '/settings/archived'
@@ -245,6 +257,7 @@ export interface RootRouteChildren {
   MemoryRoute: typeof MemoryRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  AppsAppIdRoute: typeof AppsAppIdRoute
   ConnectCallbackRoute: typeof ConnectCallbackRoute
 }
 
@@ -362,6 +375,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConnectCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps/$appId': {
+      id: '/apps/$appId'
+      path: '/apps/$appId'
+      fullPath: '/apps/$appId'
+      preLoaderRoute: typeof AppsAppIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -427,6 +447,7 @@ const rootRouteChildren: RootRouteChildren = {
   MemoryRoute: MemoryRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  AppsAppIdRoute: AppsAppIdRoute,
   ConnectCallbackRoute: ConnectCallbackRoute,
 }
 export const routeTree = rootRouteImport
