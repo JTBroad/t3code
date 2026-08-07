@@ -602,7 +602,10 @@ it.effect("backs off failed upstream refreshes across linked worktrees", () =>
       yield* driver.statusDetailsRemote(worktreePath);
       assert.equal(yield* Ref.get(fetchAttempts), 1);
 
-      yield* TestClock.adjust("29 seconds");
+      // The failure cooldown is derived as 2x the success interval, so the
+      // first failure holds for 120s and the second for 240s. Hold just short
+      // of each boundary so the backoff cannot be shortened without failing.
+      yield* TestClock.adjust("119 seconds");
       yield* driver.statusDetailsRemote(worktreePath);
       assert.equal(yield* Ref.get(fetchAttempts), 1);
 
@@ -610,7 +613,7 @@ it.effect("backs off failed upstream refreshes across linked worktrees", () =>
       yield* driver.statusDetailsRemote(cwd);
       assert.equal(yield* Ref.get(fetchAttempts), 2);
 
-      yield* TestClock.adjust("59 seconds");
+      yield* TestClock.adjust("239 seconds");
       yield* driver.statusDetailsRemote(worktreePath);
       assert.equal(yield* Ref.get(fetchAttempts), 2);
 

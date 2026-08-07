@@ -47,7 +47,13 @@ const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
-const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
+// On-demand status reads (thread mounts, explicit refreshes) fetch the upstream
+// through this cache, so its TTL — not `automaticGitFetchInterval` — is what
+// bounds fetch volume once the background poll is disabled. Hosts that rate
+// limit per-repository (Azure DevOps in particular) were tripping their quota
+// at 15s across a handful of open repositories, since the key is per
+// (gitCommonDir, remoteName) and every repository gets its own budget.
+const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(60);
 // Background status fetches are network-bound, so the budget has to cover a
 // real round trip rather than a local git invocation. At 5s, remotes that
 // simply answer slowly (cold TCP, credential helper round trip, large ref
@@ -59,8 +65,12 @@ const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(45);
 // is the *last* one worth hammering, and a cooldown below the success interval
 // would retry failing repositories more often than healthy ones — the opposite
 // of the backoff the name promises. The exponential escalation to the max below
-// supersedes the fork's earlier flat 60s cooldown.
-const STATUS_UPSTREAM_REFRESH_FAILURE_BASE_COOLDOWN = Duration.seconds(30);
+// supersedes the fork's earlier flat 60s cooldown. Derived from the success
+// interval rather than hardcoded so raising that cannot silently invert this.
+const STATUS_UPSTREAM_REFRESH_FAILURE_BASE_COOLDOWN = Duration.times(
+  STATUS_UPSTREAM_REFRESH_INTERVAL,
+  2,
+);
 const STATUS_UPSTREAM_REFRESH_FAILURE_MAX_COOLDOWN = Duration.minutes(15);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
 const REPOSITORY_PATHS_CACHE_CAPACITY = 2_048;
