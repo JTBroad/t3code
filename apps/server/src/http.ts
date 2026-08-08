@@ -4,6 +4,7 @@ import {
   AuthOrchestrationReadScope,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
+import { APP_ASSET_ROUTE_PREFIX, APP_MANIFEST_FILENAME } from "@t3tools/contracts";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as Data from "effect/Data";
@@ -28,6 +29,7 @@ import { OtlpTracer } from "effect/unstable/observability";
 
 import * as ServerConfig from "./config.ts";
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "./assets/AssetAccess.ts";
+import { resolveAppPaths } from "./apps/AppPaths.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { traceRelayRequest } from "./cloud/traceRelayRequest.ts";
@@ -210,6 +212,98 @@ export const assetRouteLayer = HttpRouter.add(
       headers: {
         "Cache-Control": "private, max-age=3600",
         "X-Content-Type-Options": "nosniff",
+      },
+    }).pipe(
+      Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),
+    );
+  }),
+);
+
+/**
+ * Serves an installed user app's own files.
+ *
+ * Everything here follows from one fact: this content is untrusted code from a
+ * file on disk, loaded into a page that also renders the user's threads.
+ *
+ * - **Containment.** The app id is validated and the resolved path must stay
+ *   inside that app's directory, so a traversal cannot turn this into an
+ *   arbitrary file read of the state directory -- which holds secrets and the
+ *   thread database.
+ * - **A restrictive CSP.** The page may run its own inline scripts and styles,
+ *   and may not reach the network. An offline HTML tool is what this exists for;
+ *   an app that phones home with what it can see is not.
+ * - **`sandbox` on the response.** Belt and braces with the iframe's own
+ *   `sandbox` attribute. If a future change loses the attribute, the header
+ *   still denies same-origin access rather than silently granting it.
+ * - **`nosniff` and no caching.** A re-installed app must not serve its previous
+ *   version out of cache.
+ */
+export const appAssetRouteLayer = HttpRouter.add(
+  "GET",
+  `${APP_ASSET_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const suffix = decodeURIComponent(
+      url.value.pathname.slice(`${APP_ASSET_ROUTE_PREFIX}/`.length),
+    );
+    const separatorIndex = suffix.indexOf("/");
+    if (separatorIndex <= 0) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    const appId = suffix.slice(0, separatorIndex);
+    const relativePath = suffix.slice(separatorIndex + 1);
+    const config = yield* ServerConfig.ServerConfig;
+    const paths = resolveAppPaths({ stateDir: config.stateDir, appId });
+    if (paths === null || relativePath.length === 0) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    const path = yield* Path.Path;
+    const root = path.resolve(paths.dataDirectory);
+    const filePath = path.resolve(path.join(root, relativePath));
+    if (!filePath.startsWith(`${root}${path.sep}`)) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    // The manifest is the app's own configuration, not content to serve. Reading
+    // it back over HTTP would leak the source thread id to the page.
+    if (path.basename(filePath) === APP_MANIFEST_FILENAME) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    const fileSystem = yield* FileSystem.FileSystem;
+    const exists = yield* Effect.orElseSucceed(fileSystem.exists(filePath), () => false);
+    if (!exists) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    return yield* HttpServerResponse.file(filePath, {
+      status: 200,
+      headers: {
+        // `default-src 'none'` then grant back only what a self-contained page
+        // needs. No `connect-src`, so fetch and websockets are denied outright.
+        "Content-Security-Policy": [
+          "default-src 'none'",
+          "script-src 'unsafe-inline' 'unsafe-eval'",
+          "style-src 'unsafe-inline'",
+          "img-src data: blob:",
+          "font-src data:",
+          "media-src data: blob:",
+          "form-action 'none'",
+          "frame-ancestors 'self'",
+          "base-uri 'none'",
+        ].join("; "),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+        // Deliberately without `allow-same-origin`: combined with
+        // `allow-scripts` it would let the page remove its own sandbox.
+        sandbox: "allow-scripts allow-forms allow-popups",
       },
     }).pipe(
       Effect.orElseSucceed(() => HttpServerResponse.text("Internal Server Error", { status: 500 })),

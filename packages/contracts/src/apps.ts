@@ -15,6 +15,9 @@
  *
  * @module apps
  */
+import * as Schema from "effect/Schema";
+
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * Built-in app ids.
@@ -82,3 +85,141 @@ export function isAppEnabled(input: {
 }): boolean {
   return (input.enabledApps ?? DEFAULT_ENABLED_APPS).includes(input.appId);
 }
+
+/* ── user-authored apps ─────────────────────────────────────────────────── */
+
+/** Filename of a user app's manifest, inside its app directory. */
+export const APP_MANIFEST_FILENAME = "manifest.json";
+
+/** Route prefix that serves an installed user app's own files. */
+export const APP_ASSET_ROUTE_PREFIX = "/app-assets";
+
+/**
+ * How an app's UI is delivered.
+ *
+ * `builtin` apps are React components compiled into the client; `page` apps are
+ * a self-contained HTML file served from disk and rendered in a sandboxed
+ * iframe. The distinction is not cosmetic -- a page app is untrusted code from a
+ * file on disk, and everything about how it is loaded follows from that.
+ */
+export const AppKind = Schema.Literals(["builtin", "page"]);
+export type AppKind = typeof AppKind.Type;
+
+/**
+ * A user app's manifest.
+ *
+ * Deliberately small. Everything here is either needed to put a button on the
+ * rail or needed to load the page safely; anything else is a field we would have
+ * to keep honouring once manifests exist on users' disks.
+ */
+export const AppManifest = Schema.Struct({
+  /** Must match the directory name, and satisfy the server's id rules. */
+  id: TrimmedNonEmptyString.check(Schema.isMaxLength(48)),
+  /** Rail tooltip and accessible name. */
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  /** File inside the app directory to load, e.g. `index.html`. */
+  entry: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+  /**
+   * Emoji shown on the rail.
+   *
+   * An emoji rather than an image path: an app-supplied image is another file to
+   * serve and another way to make the rail look like something it is not.
+   */
+  icon: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(8))),
+  /**
+   * The host API version this app was written against.
+   *
+   * Recorded now so the first app that actually calls the host is not also the
+   * thing that has to introduce versioning. Nothing enforces it yet, because
+   * page apps currently get no host access at all.
+   */
+  hostApiVersion: Schema.optionalKey(Schema.Int),
+  /** Where this app came from, when it was installed from a drive artifact. */
+  source: Schema.optionalKey(
+    Schema.Struct({
+      artifactId: Schema.optionalKey(TrimmedNonEmptyString),
+      threadId: Schema.optionalKey(TrimmedNonEmptyString),
+      installedAt: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+  ),
+});
+export type AppManifest = typeof AppManifest.Type;
+
+/** An installed user app as the client needs to render it. */
+export const InstalledApp = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  icon: Schema.optionalKey(TrimmedNonEmptyString),
+  kind: AppKind,
+  /** URL the client loads into the iframe. */
+  entryUrl: TrimmedNonEmptyString,
+  source: Schema.optionalKey(
+    Schema.Struct({
+      artifactId: Schema.optionalKey(TrimmedNonEmptyString),
+      threadId: Schema.optionalKey(TrimmedNonEmptyString),
+      installedAt: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+  ),
+});
+export type InstalledApp = typeof InstalledApp.Type;
+
+/** The URL that serves a user app's entry file. */
+export function appEntryUrl(input: { readonly appId: string; readonly entry: string }): string {
+  return `${APP_ASSET_ROUTE_PREFIX}/${input.appId}/${input.entry}`;
+}
+
+/**
+ * Extensions a page app may be installed from.
+ *
+ * HTML only, and matched against the artifact's recorded path rather than its
+ * contents. Broad enough for what agents actually produce, narrow enough that
+ * "install this" cannot be pointed at an arbitrary file in the drive.
+ *
+ * Shared so the client and the server agree: an install button that appears and
+ * then fails on the server is worse than no button.
+ */
+const INSTALLABLE_EXTENSIONS = [".html", ".htm"];
+
+export function isInstallableArtifactPath(relativePath: string): boolean {
+  const lowered = relativePath.toLowerCase();
+  return INSTALLABLE_EXTENSIONS.some((extension) => lowered.endsWith(extension));
+}
+
+/* ── rpc payloads ───────────────────────────────────────────────────────── */
+
+export const AppsListInput = Schema.Struct({});
+export const AppsListResult = Schema.Struct({ apps: Schema.Array(InstalledApp) });
+export type AppsListResult = typeof AppsListResult.Type;
+
+export const AppsInstallFromArtifactInput = Schema.Struct({
+  artifactId: TrimmedNonEmptyString,
+  /** Rail label. The user names it, not the model. */
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  icon: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(8))),
+});
+export const AppsInstallFromArtifactResult = Schema.Struct({ app: InstalledApp });
+export type AppsInstallFromArtifactResult = typeof AppsInstallFromArtifactResult.Type;
+
+export const AppsUninstallInput = Schema.Struct({ appId: TrimmedNonEmptyString });
+export const AppsUninstallResult = Schema.Struct({ removed: Schema.Boolean });
+export type AppsUninstallResult = typeof AppsUninstallResult.Type;
+
+export class AppOperationError extends Schema.ErrorClass<AppOperationError>("AppOperationError")({
+  _tag: Schema.tag("AppOperationError"),
+  operation: Schema.String,
+  message: Schema.String,
+}) {}
+
+/* ── rpc methods ────────────────────────────────────────────────────────── */
+
+/**
+ * The app-management surface.
+ *
+ * Namespaced under `apps.*` rather than `app.<id>.*`: these are operations on
+ * the set of installed apps, not operations belonging to any one of them.
+ */
+export const APPS_METHODS = {
+  list: "apps.list",
+  installFromArtifact: "apps.installFromArtifact",
+  uninstall: "apps.uninstall",
+} as const;

@@ -65,6 +65,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
+import * as AppsRpc from "./apps/AppsRpc.ts";
 import * as MemoryRpc from "./memory/MemoryRpc.ts";
 import * as MemoryPaths from "./memory/MemoryPaths.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -1479,6 +1480,20 @@ const makeWsRpcLayer = (
         [WS_METHODS.legacyMemoryGetArtifact]: (input) =>
           observeRpcEffect(WS_METHODS.legacyMemoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
             "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.appsList]: (_input) =>
+          observeRpcEffect(WS_METHODS.appsList, AppsRpc.appsList(), {
+            "rpc.aggregate": "apps",
+          }),
+        [WS_METHODS.appsInstallFromArtifact]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.appsInstallFromArtifact,
+            AppsRpc.appsInstallFromArtifact(input),
+            { "rpc.aggregate": "apps" },
+          ),
+        [WS_METHODS.appsUninstall]: (input) =>
+          observeRpcEffect(WS_METHODS.appsUninstall, AppsRpc.appsUninstall(input), {
+            "rpc.aggregate": "apps",
           }),
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {

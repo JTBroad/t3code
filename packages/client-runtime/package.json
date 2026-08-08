@@ -75,6 +75,10 @@
       "types": "./src/state/presentation.ts",
       "default": "./src/state/presentation.ts"
     },
+    "./state/apps": {
+      "types": "./src/state/apps.ts",
+      "default": "./src/state/apps.ts"
+    },
     "./state/memory": {
       "types": "./src/state/memory.ts",
       "default": "./src/state/memory.ts"

@@ -13,15 +13,15 @@
  * @module WorkspaceRail
  */
 import { Link, useLocation } from "@tanstack/react-router";
-import { MessagesSquareIcon } from "lucide-react";
+import { MessagesSquareIcon, type LucideIcon } from "lucide-react";
 import { useEffect } from "react";
 
-import { clientAppHref, resolveEnabledApps } from "../apps/registry";
+import { clientAppHref } from "../apps/registry";
+import { useEnabledApps } from "../apps/useApps";
 import {
   MACOS_TRAFFIC_LIGHTS_TOP_INSET,
   useMacosWindowControlsOverlay,
 } from "../hooks/useMacosWindowControls";
-import { usePrimarySettings } from "../hooks/useSettings";
 import { cn } from "../lib/utils";
 import {
   isAppWorkspacePath,
@@ -44,8 +44,7 @@ export { isAppWorkspacePath } from "./WorkspaceRail.logic";
 
 export function WorkspaceRail() {
   const pathname = useLocation({ select: (location) => location.pathname });
-  const enabledApps = usePrimarySettings((settings) => settings.enabledApps);
-  const apps = resolveEnabledApps(enabledApps);
+  const apps = useEnabledApps();
   const inApp = isAppWorkspacePath(pathname);
   // The desktop shell draws close/minimize/zoom over the top-left, which is
   // exactly where this rail starts. Without the offset the first icon sits
@@ -63,11 +62,17 @@ export function WorkspaceRail() {
   // One shared shape for the Threads button and every app button. Threads is not
   // an app -- it has no store, no RPC namespace, and cannot be disabled -- but it
   // is a rail entry, and giving it a second render path is how the two drift.
+  //
+  // `emoji` is the fallback for user apps, which have no compiled icon
+  // component. An app with neither falls back to the first letter of its name,
+  // so a manifest with no icon still produces a distinguishable button rather
+  // than an empty square.
   const entries = [
     {
       key: "threads",
       label: "Threads",
-      icon: MessagesSquareIcon,
+      icon: MessagesSquareIcon as LucideIcon | undefined,
+      emoji: undefined as string | undefined,
       to: threadsHref,
       isActive: !inApp,
     },
@@ -75,6 +80,7 @@ export function WorkspaceRail() {
       key: app.id,
       label: app.label,
       icon: app.icon,
+      emoji: app.emoji,
       to: clientAppHref(app),
       isActive: inApp && pathname.startsWith(clientAppHref(app)),
     })),
@@ -88,6 +94,7 @@ export function WorkspaceRail() {
     >
       {entries.map((entry) => {
         const Icon = entry.icon;
+        const glyph = entry.emoji ?? entry.label.slice(0, 1).toUpperCase();
         return (
           <Tooltip key={entry.key}>
             <TooltipTrigger
@@ -105,7 +112,13 @@ export function WorkspaceRail() {
                     entry.isActive && "bg-accent text-accent-foreground",
                   )}
                 >
-                  <Icon className="size-[18px]" />
+                  {Icon ? (
+                    <Icon className="size-[18px]" />
+                  ) : (
+                    <span aria-hidden className="text-sm leading-none">
+                      {glyph}
+                    </span>
+                  )}
                 </Link>
               }
             />

@@ -14,6 +14,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useConsolidateMemory } from "../hooks/useConsolidateMemory";
 import { useEnvironmentQuery } from "../state/query";
+import { InstallAppControl } from "../apps/InstallAppControl";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { memoryEnvironment } from "../state/memory";
 import { cn } from "../lib/utils";
@@ -423,14 +424,28 @@ export function MemoryView() {
           <EmptyState message="Select an artifact." />
         ) : (
           <article className="flex max-w-3xl flex-col gap-4">
-            <header className="flex flex-col gap-1">
-              <h1 className="text-lg font-semibold">{artifact.relativePath}</h1>
-              <p className="font-mono text-xs text-muted-foreground">
-                {artifact.kind} · {formatByteSize(artifact.byteSize)} · {artifact.createdAt}
-              </p>
-              {artifact.threadId ? (
-                <p className="text-xs text-muted-foreground">Thread {artifact.threadId}</p>
-              ) : null}
+            <header className="flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h1 className="truncate text-lg font-semibold">{artifact.relativePath}</h1>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {artifact.kind} · {formatByteSize(artifact.byteSize)} · {artifact.createdAt}
+                  </p>
+                  {artifact.threadId ? (
+                    <p className="text-xs text-muted-foreground">Thread {artifact.threadId}</p>
+                  ) : null}
+                </div>
+                {/* Renders only for HTML. This is where a generated page becomes
+                    a real app, and it is deliberately a click rather than
+                    something the agent that wrote the file can do. */}
+                <InstallAppControl
+                  artifact={{
+                    id: artifact.id,
+                    relativePath: artifact.relativePath,
+                    threadId: artifact.threadId,
+                  }}
+                />
+              </div>
             </header>
 
             <section className="flex flex-col gap-1">

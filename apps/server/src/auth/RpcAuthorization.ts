@@ -72,6 +72,11 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.legacyMemoryGetNote]: AuthOrchestrationReadScope,
   [WS_METHODS.legacyMemoryListArtifacts]: AuthOrchestrationReadScope,
   [WS_METHODS.legacyMemoryGetArtifact]: AuthOrchestrationReadScope,
+  [WS_METHODS.appsList]: AuthOrchestrationReadScope,
+  // Installing runs someone else's page inside the app. That is a change to
+  // what the environment does, not a read of it, so it takes the operate scope.
+  [WS_METHODS.appsInstallFromArtifact]: AuthOrchestrationOperateScope,
+  [WS_METHODS.appsUninstall]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,

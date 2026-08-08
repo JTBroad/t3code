@@ -126,6 +126,16 @@ import {
   LEGACY_MEMORY_METHODS,
 } from "./apps/memory.ts";
 import {
+  AppOperationError,
+  APPS_METHODS,
+  AppsInstallFromArtifactInput,
+  AppsInstallFromArtifactResult,
+  AppsListInput,
+  AppsListResult,
+  AppsUninstallInput,
+  AppsUninstallResult,
+} from "./apps.ts";
+import {
   DiscoveredLocalServerList,
   PreviewCloseInput,
   PreviewError,
@@ -264,6 +274,11 @@ export const WS_METHODS = {
   legacyMemoryListArtifacts: LEGACY_MEMORY_METHODS.listArtifacts,
   legacyMemoryGetArtifact: LEGACY_MEMORY_METHODS.getArtifact,
 
+  // Managing the set of installed apps, as opposed to talking to one of them.
+  appsList: APPS_METHODS.list,
+  appsInstallFromArtifact: APPS_METHODS.installFromArtifact,
+  appsUninstall: APPS_METHODS.uninstall,
+
   // Provider methods
   providersListAgents: "providers.listAgents",
 
@@ -369,6 +384,24 @@ export const WsMemoryGetArtifactRpc = Rpc.make(WS_METHODS.memoryGetArtifact, {
   payload: MemoryGetArtifactInput,
   success: MemoryGetArtifactResult,
   error: Schema.Union([MemoryOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAppsListRpc = Rpc.make(WS_METHODS.appsList, {
+  payload: AppsListInput,
+  success: AppsListResult,
+  error: Schema.Union([AppOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAppsInstallFromArtifactRpc = Rpc.make(WS_METHODS.appsInstallFromArtifact, {
+  payload: AppsInstallFromArtifactInput,
+  success: AppsInstallFromArtifactResult,
+  error: Schema.Union([AppOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAppsUninstallRpc = Rpc.make(WS_METHODS.appsUninstall, {
+  payload: AppsUninstallInput,
+  success: AppsUninstallResult,
+  error: Schema.Union([AppOperationError, EnvironmentAuthorizationError]),
 });
 
 /**
@@ -954,6 +987,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsLegacyMemoryGetNoteRpc,
   WsLegacyMemoryListArtifactsRpc,
   WsLegacyMemoryGetArtifactRpc,
+  WsAppsListRpc,
+  WsAppsInstallFromArtifactRpc,
+  WsAppsUninstallRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
