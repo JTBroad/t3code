@@ -24,14 +24,38 @@
  * "what may an HTML file dropped on disk ask for?" is a separate design question
  * from "how do we run one".
  *
+ * The app's `entryUrl` is resolved against the environment's HTTP base URL, the
+ * same way asset URLs are. It is stored root-relative, and the client is
+ * routinely not on the environment's origin -- desktop renders from
+ * `t3code://app`, browser dev from Vite, the hosted app from app.t3.codes. Used
+ * raw it addressed the *client*, which answers unknown paths with the SPA shell,
+ * so the frame loaded T3 Code inside itself and rendered as an empty workspace.
+ *
  * @module apps/PageAppFrame
  */
 import type { InstalledApp } from "@t3tools/contracts";
 
+import { resolveAssetUrl } from "~/assets/assetUrls";
+import { usePrimaryEnvironmentId } from "~/state/environments";
+import { usePreparedConnection } from "~/state/session";
+
 export function PageAppFrame({ app }: { readonly app: InstalledApp }) {
+  const environmentId = usePrimaryEnvironmentId();
+  const preparedConnection = usePreparedConnection(environmentId);
+  const entryUrl =
+    preparedConnection._tag === "None"
+      ? null
+      : resolveAssetUrl(preparedConnection.value.httpBaseUrl, app.entryUrl);
+
+  // No src until the connection resolves: pointing the frame at a relative URL
+  // in the meantime would load the client shell and show the wrong thing.
+  if (entryUrl === null) {
+    return <div className="h-full w-full bg-background" />;
+  }
+
   return (
     <iframe
-      src={app.entryUrl}
+      src={entryUrl}
       title={app.name}
       className="h-full w-full border-0 bg-background"
       sandbox="allow-scripts allow-forms allow-popups"

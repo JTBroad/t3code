@@ -91,8 +91,17 @@ export function isAppEnabled(input: {
 /** Filename of a user app's manifest, inside its app directory. */
 export const APP_MANIFEST_FILENAME = "manifest.json";
 
-/** Route prefix that serves an installed user app's own files. */
-export const APP_ASSET_ROUTE_PREFIX = "/app-assets";
+/**
+ * Route prefix that serves an installed user app's own files.
+ *
+ * Under `/api` so it inherits the dev proxy, exactly like `/api/assets`. A
+ * top-level prefix is not proxied by the web dev server, which answers anything
+ * it does not recognise with the SPA's `index.html` -- so the frame loaded the
+ * client shell instead of the app, and rendered blank. `DEV_PROXIED_PATH_PREFIXES`
+ * is the list that decides this; living under a prefix already on it means there
+ * is no second list to keep in sync.
+ */
+export const APP_ASSET_ROUTE_PREFIX = "/api/app-assets";
 
 /**
  * How an app's UI is delivered.

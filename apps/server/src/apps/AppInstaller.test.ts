@@ -68,7 +68,7 @@ layer("install and discovery", (it) => {
 
       expect(installed?.id).toBe("foliage");
       expect(installed?.kind).toBe("page");
-      expect(installed?.entryUrl).toBe("/app-assets/foliage/index.html");
+      expect(installed?.entryUrl).toBe("/api/app-assets/foliage/index.html");
 
       const read = yield* readInstalledApp({ stateDir: dir, appId: "foliage" });
       expect(read?.name).toBe("Fall Foliage");

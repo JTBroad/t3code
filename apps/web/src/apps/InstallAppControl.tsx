@@ -100,10 +100,17 @@ export function InstallAppControl({
             </dl>
 
             {/* Stated plainly rather than assumed. Someone deciding whether to
-                trust a generated page needs to know what it can reach. */}
+                trust a generated page needs to know what it can reach -- and the
+                network line is the one that matters, because it is the only way
+                anything the page holds can leave this machine. Leading with what
+                it *can* do rather than burying it after the reassurance. */}
             <p className="text-xs text-muted-foreground">
-              The page runs sandboxed: it cannot reach the network, read your threads or notes, or
-              see anything else in this app.
+              The page runs sandboxed: it cannot read your threads, notes, or anything else in this
+              app. It{" "}
+              <span className="font-medium text-foreground">
+                can send and receive data over the internet
+              </span>
+              , so only install a page you would trust with what it displays.
             </p>
 
             {error ? <p className="text-xs text-destructive">{error}</p> : null}

@@ -12,12 +12,15 @@
  *
  * @module WorkspaceRail
  */
-import { Link, useLocation } from "@tanstack/react-router";
+import { appWorkspaceRoot, type ContextMenuItem } from "@t3tools/contracts";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { MessagesSquareIcon, type LucideIcon } from "lucide-react";
-import { useEffect } from "react";
+import { useCallback, useEffect, type MouseEvent as ReactMouseEvent } from "react";
 
 import { clientAppHref } from "../apps/registry";
 import { useEnabledApps } from "../apps/useApps";
+import { useUninstallApp } from "../apps/useUninstallApp";
+import { readLocalApi } from "../localApi";
 import {
   MACOS_TRAFFIC_LIGHTS_TOP_INSET,
   useMacosWindowControlsOverlay,
@@ -58,6 +61,47 @@ export function WorkspaceRail() {
   }, [pathname]);
 
   const threadsHref = resolveThreadsHref(pathname);
+  const navigate = useNavigate();
+  const { uninstall } = useUninstallApp();
+
+  /**
+   * Right-click to remove a user app.
+   *
+   * On the rail rather than in a settings page because this is where the app
+   * is: a button someone added by clicking is one they should be able to
+   * remove by clicking on it. Page apps only -- a built-in has no directory to
+   * delete, and its rail entry is governed by `enabledApps`.
+   *
+   * Confirmed before it runs, since removal deletes the app's directory and the
+   * page came from a thread that may be long gone.
+   */
+  const handleAppContextMenu = useCallback(
+    (event: ReactMouseEvent, app: { readonly id: string; readonly label: string }) => {
+      const api = readLocalApi();
+      if (!api) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const items: ContextMenuItem<"remove-app">[] = [
+        { id: "remove-app", label: "Remove from sidebar", icon: "trash", destructive: true },
+      ];
+      void api.contextMenu
+        .show(items, { x: event.clientX, y: event.clientY })
+        .then(async (action) => {
+          if (action !== "remove-app") return;
+          const confirmed = await api.dialogs.confirm(
+            `Remove "${app.label}" from the sidebar? This deletes the installed app's files.`,
+          );
+          if (!confirmed) return;
+          const removed = await uninstall(app.id);
+          // Leaving the route mounted would strand the user on an app that no
+          // longer exists, which renders as the "isn't available" placeholder.
+          if (removed && pathname.startsWith(appWorkspaceRoot(app.id))) {
+            void navigate({ to: threadsHref || THREADS_WORKSPACE_ROOT });
+          }
+        });
+    },
+    [navigate, pathname, threadsHref, uninstall],
+  );
 
   // One shared shape for the Threads button and every app button. Threads is not
   // an app -- it has no store, no RPC namespace, and cannot be disabled -- but it
@@ -75,6 +119,7 @@ export function WorkspaceRail() {
       emoji: undefined as string | undefined,
       to: threadsHref,
       isActive: !inApp,
+      isRemovable: false,
     },
     ...apps.map((app) => ({
       key: app.id,
@@ -83,6 +128,7 @@ export function WorkspaceRail() {
       emoji: app.emoji,
       to: clientAppHref(app),
       isActive: inApp && pathname.startsWith(clientAppHref(app)),
+      isRemovable: app.kind === "page",
     })),
   ];
 
@@ -103,6 +149,12 @@ export function WorkspaceRail() {
                   to={entry.to || THREADS_WORKSPACE_ROOT}
                   aria-label={entry.label}
                   aria-current={entry.isActive ? "page" : undefined}
+                  onContextMenu={
+                    entry.isRemovable
+                      ? (event) =>
+                          handleAppContextMenu(event, { id: entry.key, label: entry.label })
+                      : undefined
+                  }
                   className={cn(
                     "flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors",
                     "hover:bg-accent hover:text-accent-foreground",
@@ -122,7 +174,12 @@ export function WorkspaceRail() {
                 </Link>
               }
             />
-            <TooltipPopup side="right">{entry.label}</TooltipPopup>
+            <TooltipPopup side="right">
+              {entry.label}
+              {entry.isRemovable ? (
+                <span className="ml-1.5 opacity-60">right-click to remove</span>
+              ) : null}
+            </TooltipPopup>
           </Tooltip>
         );
       })}

@@ -8,8 +8,10 @@
  *
  * @module state/apps
  */
+import type { EnvironmentId } from "@t3tools/contracts";
 import { WS_METHODS } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import * as Effect from "effect/Effect";
+import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
@@ -19,12 +21,32 @@ const APPS_LIST_STALE_TIME_MS = 60_000;
 export function createAppsEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
+  const list = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:apps:list",
+    tag: WS_METHODS.appsList,
+    staleTimeMs: APPS_LIST_STALE_TIME_MS,
+  });
+
+  /**
+   * The stale time is what makes this necessary. Installing writes a directory
+   * the server only reads when asked, so without an explicit refresh the rail
+   * keeps rendering the pre-install list for up to a minute -- which is exactly
+   * the "it didn't work" the generous cache was supposed to be invisible for.
+   *
+   * `onSettled` rather than `onSuccess`, because a failed install can still have
+   * written part of an app directory, and a rail that disagrees with disk is
+   * worse than one refresh too many.
+   */
+  const refreshList = (
+    target: { readonly environmentId: EnvironmentId },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() => {
+      registry.refresh(list({ environmentId: target.environmentId, input: {} }));
+    });
+
   return {
-    list: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:apps:list",
-      tag: WS_METHODS.appsList,
-      staleTimeMs: APPS_LIST_STALE_TIME_MS,
-    }),
+    list,
     /**
      * Single-flight per environment: installing twice concurrently would have
      * two writers racing over one app directory, and the loser's files would be
@@ -37,6 +59,7 @@ export function createAppsEnvironmentAtoms<R, E>(
         mode: "singleFlight",
         key: ({ environmentId }) => environmentId,
       },
+      onSettled: refreshList,
     }),
     uninstall: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:apps:uninstall",
@@ -45,6 +68,7 @@ export function createAppsEnvironmentAtoms<R, E>(
         mode: "singleFlight",
         key: ({ environmentId }) => environmentId,
       },
+      onSettled: refreshList,
     }),
   };
 }

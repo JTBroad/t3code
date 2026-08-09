@@ -13,7 +13,7 @@ const page = (id: string, name = id): InstalledApp => ({
   id,
   name,
   kind: "page",
-  entryUrl: `/app-assets/${id}/index.html`,
+  entryUrl: `/api/app-assets/${id}/index.html`,
 });
 
 describe("BUILT_IN_APPS", () => {
@@ -63,7 +63,7 @@ describe("mergeApps", () => {
 
     expect(entry?.label).toBe("Fall Foliage");
     expect(entry?.emoji).toBe("🍁");
-    expect(entry?.installed?.entryUrl).toBe("/app-assets/foliage/index.html");
+    expect(entry?.installed?.entryUrl).toBe("/api/app-assets/foliage/index.html");
     expect(entry?.installed?.source?.threadId).toBe("th_2");
   });
 });

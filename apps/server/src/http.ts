@@ -5,6 +5,7 @@ import {
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
 import { APP_ASSET_ROUTE_PREFIX, APP_MANIFEST_FILENAME } from "@t3tools/contracts";
+import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
 import * as Data from "effect/Data";
@@ -229,15 +230,67 @@ export const assetRouteLayer = HttpRouter.add(
  *   inside that app's directory, so a traversal cannot turn this into an
  *   arbitrary file read of the state directory -- which holds secrets and the
  *   thread database.
- * - **A restrictive CSP.** The page may run its own inline scripts and styles,
- *   and may not reach the network. An offline HTML tool is what this exists for;
- *   an app that phones home with what it can see is not.
+ * - **A CSP that allows `https:` and nothing else.** The page may run its own
+ *   inline scripts and styles and may load and fetch over `https:`. This is a
+ *   deliberate widening from the original "no network at all": generated pages
+ *   reach for a CDN and for live data as a matter of course, and a sandbox that
+ *   only runs pages nobody generates is not a sandbox, it is a wall. The cost is
+ *   real and worth stating plainly -- an installed page can send what it can see
+ *   to a host of its choosing, and nothing here records which hosts an app was
+ *   meant to touch. A per-app `allowedOrigins` in the manifest, chosen at install
+ *   time, is the shape that gets that back.
+ * - **`http:` is still refused**, so a page cannot be downgraded to plaintext or
+ *   sweep the local network over an unencrypted origin.
  * - **`sandbox` on the response.** Belt and braces with the iframe's own
  *   `sandbox` attribute. If a future change loses the attribute, the header
  *   still denies same-origin access rather than silently granting it.
  * - **`nosniff` and no caching.** A re-installed app must not serve its previous
  *   version out of cache.
+ *
+ * `frame-ancestors` is an allow-list rather than `'self'` because the client is
+ * routinely not on this origin: the desktop renderer is `t3code://app`, browser
+ * dev is the Vite origin, and the hosted web app is app.t3.codes talking to a
+ * server somewhere else entirely. `'self'` would have been correct only for the
+ * one surface nobody uses, and the frame would silently fail to load on the rest.
  */
+const HOSTED_CLIENT_ORIGINS = [new URL(DEFAULT_HOSTED_APP_URL).origin];
+
+/**
+ * Scheme sources for the desktop renderer, alongside its full origins.
+ *
+ * Custom schemes are the fragile case in a CSP source list, and the failure is
+ * silent: a source a browser will not parse is dropped, the frame is refused,
+ * and the workspace renders blank with nothing on the page to say why. The
+ * scheme form is the belt to the origin's braces. Only this app registers these
+ * schemes, so the widening is nominal.
+ */
+const DESKTOP_RENDERER_SCHEMES = ["t3code:", "t3code-dev:"];
+
+/**
+ * Origins allowed to frame an installed app.
+ *
+ * Same inputs as the CORS layer, for the same reason: these are the origins a
+ * client of this server actually runs on. A fork serving its own client from
+ * somewhere else must add that origin here -- an omission shows up as an app
+ * workspace that will not render, not as a security hole.
+ */
+export function appFrameAncestors(config: {
+  readonly devUrl?: URL | undefined;
+  readonly devAllowedOrigins: ReadonlyArray<string>;
+}): ReadonlyArray<string> {
+  const origins = new Set<string>([
+    "'self'",
+    ...DESKTOP_RENDERER_ORIGINS,
+    ...DESKTOP_RENDERER_SCHEMES,
+    ...HOSTED_CLIENT_ORIGINS,
+    ...config.devAllowedOrigins,
+  ]);
+  if (config.devUrl) {
+    origins.add(config.devUrl.origin);
+  }
+  return [...origins];
+}
+
 export const appAssetRouteLayer = HttpRouter.add(
   "GET",
   `${APP_ASSET_ROUTE_PREFIX}/*`,
@@ -286,17 +339,26 @@ export const appAssetRouteLayer = HttpRouter.add(
     return yield* HttpServerResponse.file(filePath, {
       status: 200,
       headers: {
-        // `default-src 'none'` then grant back only what a self-contained page
-        // needs. No `connect-src`, so fetch and websockets are denied outright.
+        // `default-src 'none'` then grant back what a real generated page needs:
+        // its own inline code, and `https:` for everything it loads or fetches.
+        // `http:` is absent from every directive, so the page cannot be
+        // downgraded to plaintext or reach a LAN service over one.
+        //
+        // `blob:` on `script-src`, `worker-src` and `child-src` because mapping
+        // and charting libraries build their workers from a blob URL; without it
+        // they fail at runtime in a way that reads as the library being broken.
         "Content-Security-Policy": [
           "default-src 'none'",
-          "script-src 'unsafe-inline' 'unsafe-eval'",
-          "style-src 'unsafe-inline'",
-          "img-src data: blob:",
-          "font-src data:",
-          "media-src data: blob:",
+          "script-src 'unsafe-inline' 'unsafe-eval' https: blob:",
+          "style-src 'unsafe-inline' https:",
+          "img-src data: blob: https:",
+          "font-src data: https:",
+          "media-src data: blob: https:",
+          "connect-src https:",
+          "worker-src blob:",
+          "child-src blob:",
           "form-action 'none'",
-          "frame-ancestors 'self'",
+          `frame-ancestors ${appFrameAncestors(config).join(" ")}`,
           "base-uri 'none'",
         ].join("; "),
         "X-Content-Type-Options": "nosniff",
