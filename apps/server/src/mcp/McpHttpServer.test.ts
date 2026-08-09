@@ -8,6 +8,7 @@ import * as Stream from "effect/Stream";
 import { McpProtocol, McpSchema, McpServer } from "effect/unstable/ai";
 import { HttpBody, HttpClient, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 
+import { ServerSettingsService } from "../serverSettings.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -34,9 +35,13 @@ const client = McpSchema.McpServerClient.of({
   },
   getClient: Effect.die("unused"),
 });
+// Settings are read at layer construction now: whether Memory's toolkit
+// registers at all depends on `enabledApps`. The default has every built-in on,
+// so this keeps the toolkit list these tests expect.
 const TestLayer = McpHttpServer.PreviewToolkitRegistrationLive.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(PreviewAutomationBroker.layer.pipe(Layer.provide(NodeServices.layer))),
+  Layer.provide(ServerSettingsService.layerTest()),
 );
 
 it("normalizes empty successful notification responses to accepted", () => {
@@ -280,6 +285,7 @@ it.effect("serves the memory toolkit alongside preview", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const servedLayer = McpHttpServer.PreviewToolkitRegistrationLive.pipe(
+        Layer.provide(ServerSettingsService.layerTest()),
         Layer.provide(PreviewAutomationBroker.layer.pipe(Layer.provide(NodeServices.layer))),
         Layer.provideMerge(
           McpServer.layerHttp({

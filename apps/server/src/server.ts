@@ -12,6 +12,7 @@ import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ServerConfig from "./config.ts";
 import {
   otlpTracesProxyRouteLayer,
+  appAssetRouteLayer,
   assetRouteLayer,
   serverEnvironmentHttpApiLayer,
   staticAndDevRouteLayer,
@@ -21,6 +22,7 @@ import {
 import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import * as AppsLayer from "./apps/AppsLayer.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
@@ -372,7 +374,16 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
-  Layer.provideMerge(PersistenceLayerLive),
+  // The sidebar-app host seam, merged with persistence rather than added as its
+  // own entry because `pipe` tops out at 20 arguments. Provided at the runtime
+  // level because every app consumer -- the reactor's turn hooks, the MCP
+  // toolkits, the RPC handlers -- must see the same instance, and it reads the
+  // projections it resolves threads against.
+  // The sidebar-app subsystem, merged with persistence rather than added as its
+  // own entry because `pipe` tops out at 20 arguments. Provided at the runtime
+  // level because every app consumer -- the reactor's turn hooks, the MCP
+  // toolkits, the RPC handlers -- must see the same instances.
+  Layer.provideMerge(AppsLayer.layer.pipe(Layer.provideMerge(PersistenceLayerLive))),
   Layer.provideMerge(Keybindings.layer),
   Layer.provideMerge(ProviderRegistryLive),
   // The instance registry is the new routing keystone — text generation,
@@ -440,6 +451,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     ),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
+    appAssetRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),

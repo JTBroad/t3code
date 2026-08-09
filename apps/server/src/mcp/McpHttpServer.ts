@@ -1,3 +1,4 @@
+import { APP_ID_MEMORY, isAppEnabled } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -10,6 +11,7 @@ import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { ServerSettingsService } from "../serverSettings.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -215,8 +217,31 @@ const PreviewSnapshotRegistrationLive = Layer.effectDiscard(registerPreviewSnaps
   Layer.provide(PreviewSnapshotToolkitHandlersLive),
 );
 
-const MemoryToolkitRegistrationLive = McpServer.toolkit(MemoryToolkit).pipe(
-  Layer.provide(MemoryToolkitHandlersLive),
+/**
+ * Memory's tools, registered only when the app is switched on.
+ *
+ * Gated at layer construction so a disabled app does not even advertise its
+ * tools in the session's tool list -- an agent should not be told about a store
+ * it cannot use. This resolves once at boot; the handlers carry their own
+ * runtime check so toggling the app off takes effect for sessions that are
+ * already open rather than waiting for a restart.
+ *
+ * A settings read failure registers the toolkit. Memory has been on by default
+ * since it shipped, so "unreadable settings" must not be a way to silently lose
+ * the store's tools.
+ */
+const MemoryToolkitRegistrationLive = Layer.unwrap(
+  Effect.gen(function* () {
+    const settingsService = yield* ServerSettingsService;
+    const settings = yield* Effect.orElseSucceed(settingsService.getSettings, () => null);
+    const enabled = isAppEnabled({
+      enabledApps: settings?.enabledApps,
+      appId: APP_ID_MEMORY,
+    });
+    return enabled
+      ? McpServer.toolkit(MemoryToolkit).pipe(Layer.provide(MemoryToolkitHandlersLive))
+      : Layer.empty;
+  }),
 );
 
 const ThreadToolkitRegistrationLive = McpServer.toolkit(ThreadToolkit).pipe(

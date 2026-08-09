@@ -18,6 +18,10 @@
     "./relay": {
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"
+    },
+    "./apps/memory": {
+      "types": "./src/apps/memory.ts",
+      "import": "./src/apps/memory.ts"
     }
   },
   "scripts": {

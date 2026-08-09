@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
+import { DEFAULT_ENABLED_APPS } from "./apps.ts";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import {
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -605,6 +606,9 @@ export const BackgroundActivitySettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
+// Note the import rather than a local literal: the client registry and the
+// server registry both need to agree with this default, and three copies of a
+// list of app ids is three places for them to disagree.
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -631,6 +635,16 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // DEPRECATED, kept for compatibility. These now live in the memory app's own
+  // settings file at <stateDir>/apps/memory/settings.json, which takes
+  // precedence; the values here are still honoured as a fallback so an existing
+  // custom root keeps working and nobody's vault appears to empty itself.
+  //
+  // App-specific fields do not belong in the shared schema: every one of them is
+  // a future fork-versus-upstream conflict, and an app that is disabled or
+  // absent would still carry its fields here forever. `enabledApps` below is the
+  // sole exception, being the bootstrap that decides which apps load at all.
+  //
   // Root for the shared Zettelkasten memory store. Deliberately not
   // per-project: how the user works is a user-level fact, and per-project
   // stores would scatter those notes back into the repos they describe.
@@ -642,6 +656,22 @@ export const ServerSettings = Schema.Struct({
   // without needing a separate store per project.
   // Empty means "use the stateDir-derived default" (<stateDir>/drive).
   driveRootDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // Which sidebar apps this environment has switched on.
+  //
+  // Per-environment rather than per-device: an app's store lives under this
+  // environment's stateDir, so an app enabled on a machine with no store for it
+  // would only be a broken rail entry. A phone connecting here sees this list,
+  // which is why mobile will need no new sync model when it grows app UI.
+  //
+  // This is the one app-related field that belongs in core settings -- it is the
+  // bootstrap that decides which apps load, so it cannot live inside an app.
+  // Everything else an app configures lives in that app's own settings file.
+  //
+  // Defaults to every built-in so an upgrade does not silently remove the
+  // Memory workspace from someone who is already using it.
+  enabledApps: Schema.Array(TrimmedString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENABLED_APPS)),
+  ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
@@ -807,6 +837,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   memoryRootDirectory: Schema.optionalKey(TrimmedString),
   driveRootDirectory: Schema.optionalKey(TrimmedString),
+  enabledApps: Schema.optionalKey(Schema.Array(TrimmedString)),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   sourceControlWritingStyle: Schema.optionalKey(
     Schema.Struct({

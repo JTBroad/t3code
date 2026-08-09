@@ -14,7 +14,7 @@ import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import {
-  isMemoryWorkspacePath,
+  isAppWorkspacePath,
   WORKSPACE_RAIL_WIDTH,
   WorkspaceRail,
 } from "../components/WorkspaceRail";
@@ -128,7 +128,7 @@ function RootRouteView() {
   }
 
   // The rail sits outside AppSidebarLayout so each workspace keeps its own
-  // sidebar. Memory brings its own, so it renders without the thread sidebar;
+  // sidebar. Apps bring their own, so they render without the thread sidebar;
   // everything else -- including settings -- stays in the Threads workspace.
   const appShell = (
     <CommandPalette>
@@ -145,12 +145,12 @@ function RootRouteView() {
       >
         <WorkspaceRail />
         <div className="min-w-0 flex-1">
-          {isMemoryWorkspacePath(pathname) ? (
+          {isAppWorkspacePath(pathname) ? (
             // AppSidebarLayout is what normally reserves the title bar strip,
-            // and this workspace renders without it -- so its own content
-            // starts at y=0 and the window controls land on top of it. Applied
-            // here rather than inside the workspace so any future one rendered
-            // without the sidebar layout inherits the same clearance.
+            // and app workspaces render without it -- so their content starts
+            // at y=0 and the window controls land on top of it. Applied here
+            // rather than inside each app so every app inherits the same
+            // clearance without having to know the shell exists.
             <div
               className="h-full min-h-0"
               style={

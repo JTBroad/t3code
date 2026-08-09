@@ -65,6 +65,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
+import * as AppsRpc from "./apps/AppsRpc.ts";
 import * as MemoryRpc from "./memory/MemoryRpc.ts";
 import * as MemoryPaths from "./memory/MemoryPaths.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -1449,6 +1450,50 @@ const makeWsRpcLayer = (
         [WS_METHODS.memoryGetArtifact]: (input) =>
           observeRpcEffect(WS_METHODS.memoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
             "rpc.aggregate": "memory",
+          }),
+        // The pre-namespacing names, dispatched to the same handlers for one
+        // release. Clients update on their own schedule -- mobile ships through
+        // app stores -- so removing these alongside the rename would break every
+        // client that had not yet updated.
+        [WS_METHODS.legacyMemoryConsolidate]: (_input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryConsolidate, MemoryRpc.memoryConsolidate(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryReadDaily]: (_input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryReadDaily, MemoryRpc.memoryReadDaily(), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryListNotes]: (input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryListNotes, MemoryRpc.memoryListNotes(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryGetNote]: (input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryGetNote, MemoryRpc.memoryGetNote(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.legacyMemoryListArtifacts]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.legacyMemoryListArtifacts,
+            MemoryRpc.memoryListArtifacts(input),
+            { "rpc.aggregate": "memory" },
+          ),
+        [WS_METHODS.legacyMemoryGetArtifact]: (input) =>
+          observeRpcEffect(WS_METHODS.legacyMemoryGetArtifact, MemoryRpc.memoryGetArtifact(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.appsList]: (_input) =>
+          observeRpcEffect(WS_METHODS.appsList, AppsRpc.appsList(), {
+            "rpc.aggregate": "apps",
+          }),
+        [WS_METHODS.appsInstallFromArtifact]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.appsInstallFromArtifact,
+            AppsRpc.appsInstallFromArtifact(input),
+            { "rpc.aggregate": "apps" },
+          ),
+        [WS_METHODS.appsUninstall]: (input) =>
+          observeRpcEffect(WS_METHODS.appsUninstall, AppsRpc.appsUninstall(input), {
+            "rpc.aggregate": "apps",
           }),
         [WS_METHODS.serverProbe]: (_input) =>
           observeRpcEffect(WS_METHODS.serverProbe, Effect.succeed({}), {

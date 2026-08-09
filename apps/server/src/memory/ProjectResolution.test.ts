@@ -1,14 +1,32 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import * as AppHostLive from "../apps/AppHostLive.ts";
+import * as ServerConfig from "../config.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { toProjectSegment } from "./MemoryPaths.ts";
 import { resolveProjectForThread } from "./ProjectResolution.ts";
 
-const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+// Memory no longer reads core tables itself -- it asks the host. The SQL layer is
+// still here because the host reads the projections these tests seed.
+const SqliteLive = NodeSqliteClient.layerMemory();
+const layer = it.layer(
+  Layer.mergeAll(
+    SqliteLive,
+    AppHostLive.layer.pipe(
+      Layer.provide(SqliteLive),
+      Layer.provide(
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-project-resolution-test-" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
+    ),
+  ),
+);
 
 const seed = Effect.fn(function* (input: {
   readonly threadId: string;
@@ -17,7 +35,7 @@ const seed = Effect.fn(function* (input: {
   readonly worktreePath?: string | undefined;
 }) {
   const sql = yield* SqlClient.SqlClient;
-  yield* runMigrations({ toMigrationInclusive: 39 });
+  yield* runMigrations({ toMigrationInclusive: 42 });
   yield* sql`DELETE FROM projection_threads`;
   yield* sql`DELETE FROM projection_projects`;
   yield* sql`

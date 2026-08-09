@@ -4,19 +4,25 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { MemoryDb } from "../../../memory/MemoryDb.ts";
 
+import { AppHost } from "../../../apps/AppHost.ts";
 import { ServerConfig } from "../../../config.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
+// `AppHost` is how these tools reach core state (thread -> project attribution),
+// and `MemoryDb` is the app's own store. Note the absence of `SqlClient`: these
+// tools have no handle on the core database at all, which is the separation the
+// per-app store exists to make true.
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
   FileSystem.FileSystem,
   Path.Path,
   ServerConfig,
   ServerSettingsService,
-  SqlClient.SqlClient,
+  MemoryDb,
+  AppHost,
 ];
 
 /**
@@ -48,6 +54,14 @@ export const MemoryReadDailyResult = Schema.Struct({
 });
 
 export const MemorySearchInput = Schema.Struct({
+  query: Schema.optional(
+    Schema.String.pipe(
+      Schema.annotate({
+        description:
+          "Words to look for in note titles and bodies. Omit to list recent notes instead of searching.",
+      }),
+    ),
+  ),
   tag: Schema.optional(
     Schema.String.pipe(Schema.annotate({ description: "Only notes carrying this tag." })),
   ),
@@ -71,6 +85,9 @@ export const MemorySearchResult = Schema.Struct({
       scope: Schema.String,
       tags: Schema.Array(Schema.String),
       modifiedAt: Schema.String,
+      // Present only for a query search. Shows why the note matched, which is
+      // most of what makes a result usable without opening every hit.
+      snippet: Schema.optional(Schema.String),
     }),
   ),
 });
@@ -101,7 +118,7 @@ export const MemoryReadDailyTool = Tool.make("memory_read_daily", {
 
 export const MemorySearchTool = Tool.make("memory_search", {
   description:
-    "Search permanent notes by tag and scope. Notes for the current project rank ahead of user-level ones.",
+    "Search permanent notes by full text, tag, and scope. Pass `query` to search note titles and bodies; omit it to list recent notes. Notes for the current project rank ahead of user-level ones.",
   parameters: MemorySearchInput,
   success: MemorySearchResult,
   failure: McpCapabilityUnavailableError,

@@ -82,6 +82,18 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
   // connections by the network schemes the client supports instead of by host.
   const connectSources = ["'self'", "http:", "https:", "ws:", "wss:"];
 
+  // Installed sidebar apps are served by the environment and rendered in a
+  // sandboxed iframe, so the renderer frames an origin that is not its own.
+  // Restricted by scheme for the same reason as `connect-src`: the environment
+  // may be loopback, a tailnet address, or a relay host, and none of them are
+  // known when this policy is built. `'self'` alone silently blocked the frame
+  // and left the app workspace blank with nothing in the page to explain it.
+  //
+  // Framing is strictly weaker than connecting -- the parent cannot read into a
+  // sandboxed, opaque-origin frame -- so this grants less than `connect-src`
+  // already does.
+  const frameSources = ["'self'", "http:", "https:", "https://challenges.cloudflare.com"];
+
   return [
     "default-src 'self'",
     `script-src ${scriptSources.join(" ")}`,
@@ -90,7 +102,7 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
     "style-src 'self' 'unsafe-inline'",
     `font-src 'self' ${input.scheme}: data:`,
     "worker-src 'self' blob:",
-    "frame-src 'self' https://challenges.cloudflare.com",
+    `frame-src ${frameSources.join(" ")}`,
     "form-action 'self'",
   ].join("; ");
 }

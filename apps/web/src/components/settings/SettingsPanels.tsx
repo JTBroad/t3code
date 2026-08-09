@@ -6,10 +6,12 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   type BackgroundActivityProfile,
   type DesktopUpdateChannel,
+  isAppEnabled,
   ProviderDriverKind,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
+import { CLIENT_APPS } from "../../apps/registry";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
@@ -1216,6 +1218,55 @@ function FontSmoothingRow() {
   );
 }
 
+/**
+ * Which sidebar apps this environment shows.
+ *
+ * Per-environment, not per-device: an app's data lives under this environment's
+ * state directory, so enabling one somewhere that has no store for it would only
+ * produce a broken rail button.
+ *
+ * Disabling hides the workspace and withdraws the app's agent tools. It never
+ * touches the app's data -- "hide it" and "delete my notes" must not be the same
+ * button, so there is deliberately no delete affordance here.
+ */
+function SidebarAppsRow() {
+  const settings = usePrimarySettings();
+  const updateSettings = useUpdatePrimarySettings();
+  const enabledApps = settings.enabledApps;
+
+  const setAppEnabled = (appId: string, enabled: boolean) => {
+    const current = CLIENT_APPS.filter((app) => isAppEnabled({ enabledApps, appId: app.id })).map(
+      (app) => app.id,
+    );
+    const next = enabled ? [...new Set([...current, appId])] : current.filter((id) => id !== appId);
+    updateSettings({ enabledApps: next });
+  };
+
+  return (
+    <SettingsRow
+      {...searchableSetting("sidebar-apps")}
+      description="Which apps appear in the workspace rail. Disabling one hides its workspace and withdraws its agent tools; its stored data is left untouched."
+      control={
+        <div className="flex flex-col gap-3">
+          {CLIENT_APPS.map((app) => {
+            const enabled = isAppEnabled({ enabledApps, appId: app.id });
+            return (
+              <label key={app.id} className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={enabled}
+                  onCheckedChange={(checked) => setAppEnabled(app.id, Boolean(checked))}
+                  aria-label={`${app.label} app`}
+                />
+                <span className="text-muted-foreground">{app.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      }
+    />
+  );
+}
+
 function WordWrapRow() {
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
@@ -1918,6 +1969,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <SidebarAppsRow />
 
         <SettingsRow
           {...searchableSetting("memory-root-directory")}

@@ -63,6 +63,20 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.memoryGetNote]: AuthOrchestrationReadScope,
   [WS_METHODS.memoryListArtifacts]: AuthOrchestrationReadScope,
   [WS_METHODS.memoryGetArtifact]: AuthOrchestrationReadScope,
+  // The deprecated pre-namespacing aliases carry the same scopes as the methods
+  // they alias. An alias with weaker authorization would be a way around the
+  // check rather than a compatibility shim.
+  [WS_METHODS.legacyMemoryConsolidate]: AuthOrchestrationOperateScope,
+  [WS_METHODS.legacyMemoryReadDaily]: AuthOrchestrationReadScope,
+  [WS_METHODS.legacyMemoryListNotes]: AuthOrchestrationReadScope,
+  [WS_METHODS.legacyMemoryGetNote]: AuthOrchestrationReadScope,
+  [WS_METHODS.legacyMemoryListArtifacts]: AuthOrchestrationReadScope,
+  [WS_METHODS.legacyMemoryGetArtifact]: AuthOrchestrationReadScope,
+  [WS_METHODS.appsList]: AuthOrchestrationReadScope,
+  // Installing runs someone else's page inside the app. That is a change to
+  // what the environment does, not a read of it, so it takes the operate scope.
+  [WS_METHODS.appsInstallFromArtifact]: AuthOrchestrationOperateScope,
+  [WS_METHODS.appsUninstall]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,

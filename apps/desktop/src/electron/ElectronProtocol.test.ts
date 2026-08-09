@@ -226,5 +226,14 @@ describe("ElectronProtocol", () => {
       "https:",
     ]);
     assert.deepEqual(directives["font-src"], ["'self'", "t3code:", "data:"]);
+    // A sidebar app is served by the environment, so the renderer must be able
+    // to frame an origin other than its own. `'self'` alone renders the app
+    // workspace blank.
+    assert.deepEqual(directives["frame-src"], [
+      "'self'",
+      "http:",
+      "https:",
+      "https://challenges.cloudflare.com",
+    ]);
   });
 });

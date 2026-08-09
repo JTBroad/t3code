@@ -26,8 +26,8 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { buildBriefForThreadOrEmpty, prependBrief } from "../../memory/BriefInjection.ts";
-import { countContinuitySignals } from "../../memory/ContinuityBrief.ts";
+import type { AppHostActivity } from "../../apps/AppHost.ts";
+import { applyContributions, AppTurnHooksRunner } from "../../apps/AppTurnHooksRunner.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
@@ -322,6 +322,10 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  // Apps participate in turns through this and nothing else. The reactor knows
+  // no app by name -- memory's continuity brief arrives as one contribution
+  // among however many the registry has enabled.
+  const appTurnHooks = yield* AppTurnHooksRunner;
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -381,20 +385,24 @@ const make = Effect.gen(function* () {
     );
 
   /**
-   * Record that a continuity brief was injected.
+   * Record what an app contributed to a turn.
    *
-   * This is the invariant the whole memory design rests on: nothing reaches a
-   * prompt from the memory store without a corresponding visible activity in
-   * the thread. Silent prompt injection is the trust failure worth avoiding
-   * even at the cost of a little noise.
+   * This is the invariant the whole app-hook design rests on: nothing reaches a
+   * prompt from an app without a corresponding visible activity in the thread.
+   * Silent prompt injection is the trust failure worth avoiding even at the cost
+   * of a little noise.
+   *
+   * The reactor appends this rather than letting apps append it themselves, so
+   * an app cannot contribute text and forget to declare it -- the declaration
+   * arrives as part of the same value as the text.
    */
-  const appendContinuityBriefActivity = (input: {
+  const appendAppContributionActivity = (input: {
     readonly threadId: ThreadId;
-    readonly brief: string;
+    readonly activity: AppHostActivity;
     readonly createdAt: string;
   }) =>
     Effect.all({
-      commandId: serverCommandId("continuity-brief-activity"),
+      commandId: serverCommandId("app-contribution-activity"),
       eventId: serverEventId(),
     }).pipe(
       Effect.flatMap(({ commandId, eventId }) =>
@@ -404,13 +412,13 @@ const make = Effect.gen(function* () {
           threadId: input.threadId,
           activity: {
             id: eventId,
-            tone: "info",
-            kind: "memory.continuity-brief.injected",
-            summary: `Memory brief · ${countContinuitySignals(input.brief)} signals`,
-            // The exact injected text, so the activity can be expanded to see
+            tone: input.activity.tone,
+            kind: input.activity.kind,
+            summary: input.activity.summary,
+            // The app's exact payload, so the activity can be expanded to see
             // precisely what the model was given. A summary alone would not
             // settle "why did it say that?".
-            payload: { brief: input.brief },
+            payload: input.activity.payload,
             turnId: null,
             createdAt: input.createdAt,
           },
@@ -1166,26 +1174,33 @@ const make = Effect.gen(function* () {
       }
     }
 
-    // Recall runs on the opening turn only: the brief exists to ground a fresh
-    // session, and re-sending it every turn is the "always fires" failure that
-    // trains a model to skip it. Unlike the forked work above this has to be
-    // sequential -- it changes the text the turn is built from.
-    const continuityBrief = isFirstUserMessageTurn
-      ? yield* buildBriefForThreadOrEmpty({ threadId: event.payload.threadId })
-      : "";
-    const messageTextWithBrief = prependBrief(continuityBrief, message.text);
+    // Apps get to add context to the opening turn only: what grounds a fresh
+    // session is exactly what a model learns to ignore when it arrives every
+    // turn. Unlike the forked work above this has to be sequential -- it changes
+    // the text the turn is built from.
+    //
+    // The runner has already applied the timeout and swallowed hook failures, so
+    // an empty list here means "nothing to add" and needs no special case.
+    const appContributions = isFirstUserMessageTurn
+      ? yield* appTurnHooks.beforeFirstUserMessage({
+          threadId: event.payload.threadId,
+          createdAt: event.payload.createdAt,
+        })
+      : [];
+    const messageTextWithBrief = applyContributions(appContributions, message.text);
 
-    if (continuityBrief.trim().length > 0) {
-      // Best-effort: a failed activity must not block the turn, but it does
-      // mean the injection went unrecorded, so it is logged rather than
-      // swallowed silently.
-      yield* appendContinuityBriefActivity({
+    for (const { appId, contribution } of appContributions) {
+      // Best-effort: a failed activity must not block the turn, but it does mean
+      // the contribution went unrecorded, so it is logged rather than swallowed
+      // silently.
+      yield* appendAppContributionActivity({
         threadId: event.payload.threadId,
-        brief: continuityBrief,
+        activity: contribution.activity,
         createdAt: event.payload.createdAt,
       }).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("continuity brief injected without a thread activity", {
+          Effect.logWarning("app contributed to a turn without a thread activity", {
+            appId,
             threadId: event.payload.threadId,
             cause,
           }),

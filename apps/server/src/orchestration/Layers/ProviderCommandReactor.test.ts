@@ -32,6 +32,7 @@ import * as Stream from "effect/Stream";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import * as AppsLayer from "../../apps/AppsLayer.ts";
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@t3tools/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
@@ -412,10 +413,16 @@ describe("ProviderCommandReactor", () => {
           generateThreadTitle,
         }),
       ),
+      // The reactor reaches app state through the host seam: the continuity
+      // brief resolves a thread's project segment before the opening turn is
+      // sent, and the host is what performs that lookup against the projections.
+      // Sits above the config and SQL layers it draws on.
+      // The reactor reaches memory only through the hook runner now, so the real
+      // apps layer is what keeps these tests exercising the real continuity
+      // brief rather than a stand-in.
+      Layer.provideMerge(AppsLayer.layer),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
-      // The reactor itself now reaches SQL: the continuity brief resolves a
-      // thread's project segment before the opening turn is sent.
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(NodeServices.layer),
     );
